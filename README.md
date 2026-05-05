@@ -130,6 +130,16 @@ MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datum_test.py --station-i
 
 Outputs are written under `artifacts/datum_test/station002/`.
 
+### Update tide type in existing NetCDF outputs
+```bash
+MPLCONFIGDIR=/tmp/mplconfig python scripts/update_netcdf_tide_type.py
+MPLCONFIGDIR=/tmp/mplconfig python scripts/update_netcdf_tide_type.py --write
+```
+
+The first command is a dry-run. The `--write` form fetches observed hourly data
+from ERDDAP and updates only the existing `tide_type` variable in matching
+NetCDF files; it does not rerun harmonics, predictions, or plots.
+
 ### FD example
 ```bash
 python tidal_batch.py --mode fd --station-id 001 --station-kind FD --output-dir outputs

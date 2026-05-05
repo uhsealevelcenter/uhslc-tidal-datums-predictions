@@ -588,6 +588,18 @@ def _classify_tide_type(times: pd.Series, values: np.ndarray, highs: np.ndarray,
     return 'Mixed Semidiurnal'
 
 
+def compute_tide_type(df_epoch: pd.DataFrame) -> str:
+    df_epoch = clean_hourly_dataframe(df_epoch)
+    df_epoch = df_epoch.dropna(subset=['sea_level'])
+    if len(df_epoch) < 24:
+        return 'Unknown'
+    y = df_epoch['sea_level'].to_numpy(dtype=float)
+    t = df_epoch['time']
+    highs, _ = find_peaks(y, distance=6)
+    lows, _ = find_peaks(-y, distance=6)
+    return _classify_tide_type(t, y, highs, lows)
+
+
 def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None = None) -> DatumResult:
     df_epoch = clean_hourly_dataframe(df_epoch)
     df_epoch = df_epoch.dropna(subset=['sea_level'])
