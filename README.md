@@ -158,6 +158,7 @@ python tidal_batch.py --mode rq --station-id 002 --station-kind RQ --version A -
 - To reduce long-epoch memory and CPU pressure, the harmonic solve now follows the legacy Matlab `opt = 'nostats'` approach rather than computing UTide confidence intervals.
 - FD hourly predictions are capped at `2035-12-31 23:00`, and FD minute predictions are reduced to saved daily high/low event times and heights over `2025-01-01 00:00` through `2030-12-31 23:59`.
 - For Python `utide`, pass datetime arrays directly into `solve()` and `reconstruct()`. Passing Matplotlib day numbers without an explicit epoch can yield empty constituent sets and invalid sampling diagnostics.
+- Tide type is classified from observed hourly sea level using NOAA categories: `Diurnal`, `Semidiurnal`, or `Mixed Semidiurnal`. The classifier counts local high/low waters in valid 24h50m tidal-day windows and separates semidiurnal from mixed semidiurnal using within-window high/low inequality.
 
 ## Source Context
 This package was assembled from work performed in an IDEA/SEA environment and is intended as a **prototype handoff**, not a final production release.

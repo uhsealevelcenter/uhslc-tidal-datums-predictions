@@ -53,6 +53,16 @@ class TestTidalCore(unittest.TestCase):
         sea = 1000*np.sin(2*np.pi*hours/12.42) + 250*np.sin(2*np.pi*hours/24.0) + 10*np.random.default_rng(42).normal(size=len(time))
         return pd.DataFrame({'time': time, 'sea_level': sea})
 
+    @staticmethod
+    def tide_type_hourly(semidiurnal_amp=0.0, diurnal_amp=0.0, days=90):
+        time = pd.date_range('2002-01-01 00:00:00', periods=24 * days, freq='1h')
+        hours = np.arange(len(time), dtype=float)
+        sea = (
+            semidiurnal_amp * np.sin(2 * np.pi * hours / 12.42)
+            + diurnal_amp * np.sin(2 * np.pi * hours / 24.84)
+        )
+        return pd.DataFrame({'time': time, 'sea_level': sea})
+
     def setUp(self):
         fetch_station_metadata_index.cache_clear()
 
@@ -94,7 +104,19 @@ class TestTidalCore(unittest.TestCase):
         self.assertEqual(dat.LAT, 123.0)
         self.assertAlmostEqual(dat.p90_low, float(np.nanpercentile(df['sea_level'].to_numpy(dtype=float), 10)))
         self.assertAlmostEqual(dat.p99_high, float(np.nanpercentile(df['sea_level'].to_numpy(dtype=float), 99)))
-        self.assertIn(dat.tide_type, ['Diurnal', 'Semidiurnal/Mixed', 'Unknown'])
+        self.assertIn(dat.tide_type, ['Diurnal', 'Semidiurnal', 'Mixed Semidiurnal', 'Unknown'])
+
+    def test_tide_type_diurnal(self):
+        dat = compute_datums(self.tide_type_hourly(diurnal_amp=1000.0))
+        self.assertEqual(dat.tide_type, 'Diurnal')
+
+    def test_tide_type_semidiurnal(self):
+        dat = compute_datums(self.tide_type_hourly(semidiurnal_amp=1000.0))
+        self.assertEqual(dat.tide_type, 'Semidiurnal')
+
+    def test_tide_type_mixed_semidiurnal(self):
+        dat = compute_datums(self.tide_type_hourly(semidiurnal_amp=1000.0, diurnal_amp=350.0))
+        self.assertEqual(dat.tide_type, 'Mixed Semidiurnal')
 
     def test_harmonics_and_prediction(self):
         df = self.synthetic_hourly()

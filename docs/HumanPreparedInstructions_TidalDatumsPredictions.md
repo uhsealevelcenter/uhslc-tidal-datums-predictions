@@ -35,7 +35,13 @@ These would cover Pohnpei for FD and its three RQ versions.
 
 - Station zero
 - GMT
-- mm integer
+- mm integer in exported NetCDF datum and prediction fields
+
+Current project note:
+
+- Keep datum calculations as floating-point values internally. Calculate
+  derived datums from unrounded values, then round exported datum values to
+  integer millimeters only when writing NetCDF.
 
 ## Epochs and Data Completion
 
@@ -78,6 +84,30 @@ calculated and saved.
 
 Current project note:
 
+- Before datum calculation, sort observations by GMT timestamp, drop duplicate
+  timestamps, convert the missing sentinel `-32767` to null, and use only valid
+  hourly sea-level observations.
+- Calculate `MHW` and `MLW` from local extrema in the valid observed hourly
+  sea-level array, using a minimum separation of 6 hourly samples.
+- Calculate `MHHW` and `MLLW` from raw observed hourly values within
+  non-overlapping 24h50m tidal-day windows. Anchor the first window at the
+  first valid timestamp, use half-open bounds, skip final partial windows, and
+  require at least 20 finite hourly observations per valid window.
+- Do not calculate `MHHW` and `MLLW` from the local-extrema high/low event
+  lists.
+- Derived datums are `DTL = (MHHW + MLLW) / 2`,
+  `MTL = (MHW + MLW) / 2`, `MSL` as the arithmetic mean of valid observed
+  hourly sea level, `GT = MHHW - MLLW`, `MN = MHW - MLW`,
+  `DHQ = MHHW - MHW`, and `DLQ = MLW - MLLW`.
+- Classify tide type from valid observed hourly sea level using NOAA
+  categories: `Diurnal`, `Semidiurnal`, and `Mixed Semidiurnal`.
+- `Diurnal` means the typical valid tidal-day window has one high water and
+  one low water. `Semidiurnal` means two high waters and two low waters of
+  approximately equal size. `Mixed Semidiurnal` means two high waters and two
+  low waters of different size.
+- In this implementation, two highs or two lows are treated as approximately
+  equal when their median within-window height difference is no more than 10%
+  of the median valid tidal-day range.
 - The implementation now includes switch elevations where available, using
   `LEV` and `LEVB` names consistently.
 - These are currently extracted from the interim live `.din` directory and

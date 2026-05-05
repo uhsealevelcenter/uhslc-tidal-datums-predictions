@@ -109,6 +109,15 @@ Rounding:
 - Calculate derived datums from the unrounded floating-point values.
 - Round final exported datum values to integer millimeters only when writing the NetCDF.
 
+Tide type:
+
+- Classify tide type from valid observed hourly sea level within non-overlapping tidal-day windows.
+- Use the NOAA categories `Diurnal`, `Semidiurnal`, and `Mixed Semidiurnal`.
+- `Diurnal` means the typical valid tidal-day window has one high water and one low water.
+- `Semidiurnal` means the typical valid tidal-day window has two high waters and two low waters of approximately equal size.
+- `Mixed Semidiurnal` means the typical valid tidal-day window has two high waters and two low waters of different size.
+- Treat two highs or two lows as approximately equal when their median within-window height difference is no more than 10 percent of the median valid tidal-day range.
+
 HAT and LAT should come from the harmonic tide prediction over the epoch, not directly from observations.
 
 The percentile fields in this project are based on observed hourly sea level during the epoch in station-zero units.

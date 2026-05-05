@@ -36,6 +36,7 @@ PRIMARY_EPOCHS = [
 MAX_PREDICTION_END = pd.Timestamp("2035-12-31 23:00:00")
 MAX_MINUTE_PREDICTION_START = pd.Timestamp("2025-01-01 00:00:00")
 MAX_MINUTE_PREDICTION_END = pd.Timestamp("2030-12-31 23:59:00")
+TIDE_TYPE_EQUALITY_FRACTION = 0.10
 
 @dataclass
 class Epoch:
@@ -531,6 +532,62 @@ def _tidal_day_windows(times: pd.Series, values: np.ndarray) -> Tuple[np.ndarray
     return np.array(max_list, dtype=float), np.array(min_list, dtype=float), np.array(mean_list, dtype=float)
 
 
+def _classify_tide_type(times: pd.Series, values: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> str:
+    tidal_day = pd.Timedelta(hours=24, minutes=50)
+    valid_windows = []
+    cur = times.iloc[0]
+    last = times.iloc[-1]
+    while cur + tidal_day <= last:
+        end = cur + tidal_day
+        mask = (times >= cur) & (times < end)
+        window_values = values[mask.to_numpy()]
+        if np.isfinite(window_values).sum() >= 20:
+            valid_windows.append((cur, end, np.nanmax(window_values) - np.nanmin(window_values)))
+        cur += tidal_day
+
+    if not valid_windows:
+        return 'Unknown'
+
+    high_times = times.iloc[highs].reset_index(drop=True)
+    low_times = times.iloc[lows].reset_index(drop=True)
+    high_values = values[highs]
+    low_values = values[lows]
+    high_counts = []
+    low_counts = []
+    high_diffs = []
+    low_diffs = []
+    ranges = []
+
+    for start, end, window_range in valid_windows:
+        hmask = (high_times >= start) & (high_times < end)
+        lmask = (low_times >= start) & (low_times < end)
+        hvals = high_values[hmask.to_numpy()]
+        lvals = low_values[lmask.to_numpy()]
+        high_counts.append(len(hvals))
+        low_counts.append(len(lvals))
+        if np.isfinite(window_range) and window_range > 0:
+            ranges.append(window_range)
+        if len(hvals) >= 2:
+            high_diffs.append(abs(float(hvals[0]) - float(hvals[1])))
+        if len(lvals) >= 2:
+            low_diffs.append(abs(float(lvals[0]) - float(lvals[1])))
+
+    typical_highs = int(np.rint(np.nanmedian(high_counts)))
+    typical_lows = int(np.rint(np.nanmedian(low_counts)))
+    if typical_highs <= 1 and typical_lows <= 1:
+        return 'Diurnal'
+    if typical_highs < 2 or typical_lows < 2 or not ranges:
+        return 'Unknown'
+
+    range_scale = float(np.nanmedian(ranges))
+    high_inequality = float(np.nanmedian(high_diffs)) if high_diffs else 0.0
+    low_inequality = float(np.nanmedian(low_diffs)) if low_diffs else 0.0
+    equality_limit = TIDE_TYPE_EQUALITY_FRACTION * range_scale
+    if high_inequality <= equality_limit and low_inequality <= equality_limit:
+        return 'Semidiurnal'
+    return 'Mixed Semidiurnal'
+
+
 def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None = None) -> DatumResult:
     df_epoch = clean_hourly_dataframe(df_epoch)
     df_epoch = df_epoch.dropna(subset=['sea_level'])
@@ -546,11 +603,7 @@ def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None
     MHW = float(np.nanmean(hw))
     MLW = float(np.nanmean(lw))
 
-    if len(highs) > 1:
-        t_delta_hours = np.diff(t.iloc[highs]).astype('timedelta64[m]').astype(float) / 60.0
-        tide_type = 'Diurnal' if np.nanmean(t_delta_hours) > 18 else 'Semidiurnal/Mixed'
-    else:
-        tide_type = 'Unknown'
+    tide_type = _classify_tide_type(t, y, highs, lows)
 
     max_list, min_list, _ = _tidal_day_windows(t, y)
     MHHW = float(np.nanmean(max_list)) if len(max_list) else np.nan
