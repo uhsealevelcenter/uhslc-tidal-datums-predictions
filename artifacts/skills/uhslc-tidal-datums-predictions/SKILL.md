@@ -63,17 +63,51 @@ If no standard epoch qualifies:
 
 ## Datums
 
-Compute datums from observed hourly sea level within the selected epoch:
+Compute datums from observed hourly sea level within the selected epoch.
 
-- MHW and MLW: all local maxima/minima with at least 6 hours separation
-- MHHW and MLLW: tidal-day windows of 24 hours 50 minutes
+Before datum calculation:
+
+- sort observations by GMT timestamp
+- drop duplicate timestamps
+- convert the missing sentinel value `-32767` to null
+- drop rows with null sea level values
+- use the remaining valid hourly observations for datum calculations
+
+For local-extrema datums:
+
+- MHW and MLW are based on local extrema in the valid-observation sea-level array.
+- Detect high waters as local maxima with a minimum separation of 6 hourly samples.
+- Detect low waters as local minima with a minimum separation of 6 hourly samples.
+- MHW is the arithmetic mean of all detected high-water values.
+- MLW is the arithmetic mean of all detected low-water values.
+
+For tidal-day datums:
+
+- Use non-overlapping tidal-day windows of exactly 24 hours 50 minutes.
+- Anchor the first window at the first valid timestamp in the epoch after missing values are dropped.
+- Advance subsequent windows by exactly 24 hours 50 minutes.
+- Use half-open window bounds: include observations with `time >= window_start` and `time < window_start + 24h50m`.
+- Stop before the final partial tidal-day window; include only windows where `window_start + 24h50m <= last_valid_timestamp`.
+- A window is valid only when it contains at least 20 finite hourly sea-level observations.
+- MHHW is the arithmetic mean of the maximum observed hourly sea level in each valid tidal-day window.
+- MLLW is the arithmetic mean of the minimum observed hourly sea level in each valid tidal-day window.
+- Do not calculate MHHW and MLLW from the local-extrema high/low event lists; use the raw observed hourly values within each valid tidal-day window.
+
+Derived datums:
+
 - DTL = (MHHW + MLLW) / 2
 - MTL = (MHW + MLW) / 2
-- MSL: mean of observed hourly sea level
+- MSL = arithmetic mean of valid observed hourly sea level
 - GT = MHHW - MLLW
 - MN = MHW - MLW
 - DHQ = MHHW - MHW
 - DLQ = MLW - MLLW
+
+Rounding:
+
+- Keep datum calculations as floating-point values internally.
+- Calculate derived datums from the unrounded floating-point values.
+- Round final exported datum values to integer millimeters only when writing the NetCDF.
 
 HAT and LAT should come from the harmonic tide prediction over the epoch, not directly from observations.
 
