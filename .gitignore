@@ -7,6 +7,12 @@ artifacts/*
 artifacts/datums_predictions/*
 !artifacts/datums_predictions/station002/
 !artifacts/datums_predictions/station002/**
+!artifacts/datums_predictions/station003/
+!artifacts/datums_predictions/station003/**
+!artifacts/datums_predictions/station007/
+!artifacts/datums_predictions/station007/**
+!artifacts/datums_predictions/station057/
+!artifacts/datums_predictions/station057/**
 !artifacts/datums_only/
 artifacts/datums_only/*
 !artifacts/datums_only/station002/

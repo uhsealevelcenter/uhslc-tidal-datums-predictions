@@ -1,0 +1,725 @@
+{
+  "station_id": "057",
+  "records": [
+    {
+      "record_id": "057",
+      "station_name": "Honolulu, Hawaii",
+      "station_kind": "FD",
+      "netcdf": "artifacts/datums_predictions/station057/netcdf/057.nc",
+      "harmonic_artifacts": {
+        "NTDE_2002-2020": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.json"
+        },
+        "NTDE_1983-2001": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.json"
+        },
+        "IPCC-AR6_1995-2014": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.json"
+        },
+        "RECENT_2007-03-31_2026-03-31": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-03-31_2026-03-31_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-03-31_2026-03-31_harmonics.json"
+        }
+      },
+      "prediction_basis_epoch": "NTDE_2002-2020",
+      "prediction_scope": "long_future",
+      "hourly_prediction": {
+        "saved": true,
+        "variable": "hourly_prediction_primary",
+        "start": "1905-01-01 10:00:00",
+        "end": "2100-12-31 23:00:00",
+        "rows": 1718102
+      },
+      "minute_highlow_prediction": {
+        "saved": true,
+        "time_variable": "minute_highlow_time_primary",
+        "height_variable": "minute_highlow_height_mm_primary",
+        "type_variable": "minute_highlow_type_primary",
+        "start": "2025-01-01 00:00:00",
+        "end": "2030-12-31 23:59:00",
+        "rows": 8440
+      },
+      "update_cycle_months": 60,
+      "update_cycle_reason": "default",
+      "epochs": [
+        {
+          "epoch": {
+            "name": "NTDE_2002-2020",
+            "start": "2002-01-01 00:00:00",
+            "end": "2020-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 1.0,
+            "n_expected": 166560,
+            "n_valid": 166560,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1789.8365886387357,
+            "MHW": 1641.9318756507512,
+            "DTL": 1496.7030714179216,
+            "MTL": 1449.3174502676345,
+            "MSL": 1456.5577149375601,
+            "MLW": 1256.7030248845178,
+            "MLLW": 1203.5695541971074,
+            "GT": 586.2670344416283,
+            "MN": 385.22885076623334,
+            "DHQ": 147.90471298798457,
+            "DLQ": 53.13347068741041,
+            "HAT": 2039.027920055763,
+            "LAT": 1062.8416521154334,
+            "p90_low": 1222.0,
+            "p95_low": 1180.0,
+            "p99_low": 1109.0,
+            "p90_high": 1741.0,
+            "p95_high": 1816.0,
+            "p99_high": 1939.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "NO1",
+            "NU2"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 166560,
+          "hourly_overlap_rows": 166560,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057/NTDE_2002-2020_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057/NTDE_2002-2020_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057/NTDE_2002-2020_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 32.51054510442043,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "NTDE_1983-2001",
+            "start": "1983-01-01 00:00:00",
+            "end": "2001-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 0.9900276176753122,
+            "n_expected": 166560,
+            "n_valid": 164899,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1740.1085843373494,
+            "MHW": 1592.0847037621086,
+            "DTL": 1450.989156626506,
+            "MTL": 1404.002125892354,
+            "MSL": 1411.7390645182809,
+            "MLW": 1215.919548022599,
+            "MLLW": 1161.8697289156626,
+            "GT": 578.2388554216868,
+            "MN": 376.1651557395096,
+            "DHQ": 148.0238805752408,
+            "DLQ": 54.04981910693641,
+            "HAT": 1979.8506241321172,
+            "LAT": 1024.0044956181437,
+            "p90_low": 1183.0,
+            "p95_low": 1140.0,
+            "p99_low": 1070.0,
+            "p90_high": 1689.0,
+            "p95_high": 1764.0,
+            "p99_high": 1881.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "P1",
+            "SA",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "SSA",
+            "NO1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 164899,
+          "hourly_overlap_rows": 164899,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057/NTDE_1983-2001_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057/NTDE_1983-2001_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057/NTDE_1983-2001_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 55.89429446260806,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "IPCC-AR6_1995-2014",
+            "start": "1995-01-01 00:00:00",
+            "end": "2014-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 1.0,
+            "n_expected": 175320,
+            "n_valid": 175320,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1760.76809746423,
+            "MHW": 1614.6065168221658,
+            "DTL": 1470.3530953392833,
+            "MTL": 1423.8807615976002,
+            "MSL": 1431.1003707506275,
+            "MLW": 1233.155006373035,
+            "MLLW": 1179.9380932143363,
+            "GT": 580.8300042498938,
+            "MN": 381.45151044913086,
+            "DHQ": 146.16158064206434,
+            "DLQ": 53.21691315869862,
+            "HAT": 2005.6317526901767,
+            "LAT": 1042.7003677751898,
+            "p90_low": 1205.0,
+            "p95_low": 1163.0,
+            "p99_low": 1094.0,
+            "p90_high": 1710.0,
+            "p95_high": 1784.0,
+            "p99_high": 1900.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "SSA",
+            "NO1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 175320,
+          "hourly_overlap_rows": 175320,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057/IPCC-AR6_1995-2014_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057/IPCC-AR6_1995-2014_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 35.09772116159905,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "RECENT_2007-03-31_2026-03-31",
+            "start": "2007-03-31 23:00:00",
+            "end": "2026-03-31 23:00:00",
+            "source": "recent",
+            "completion_fraction": 0.9989313224584386,
+            "n_expected": 166561,
+            "n_valid": 166383,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1798.5781226682584,
+            "MHW": 1651.0750652254937,
+            "DTL": 1506.0135800626772,
+            "MTL": 1459.1822645352772,
+            "MSL": 1466.485554413612,
+            "MLW": 1267.289463845061,
+            "MLLW": 1213.449037457096,
+            "GT": 585.1290852111624,
+            "MN": 383.7856013804328,
+            "DHQ": 147.50305744276466,
+            "DLQ": 53.84042638796495,
+            "HAT": 2042.7539544425354,
+            "LAT": 1066.8998431922448,
+            "p90_low": 1233.0,
+            "p95_low": 1190.0,
+            "p99_low": 1118.0,
+            "p90_high": 1750.0,
+            "p95_high": 1827.0,
+            "p99_high": 1951.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "SSA",
+            "J1",
+            "NO1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-03-31_2026-03-31_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-03-31_2026-03-31_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 166383,
+          "hourly_overlap_rows": 166383,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057/RECENT_2007-03-31_2026-03-31_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057/RECENT_2007-03-31_2026-03-31_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057/RECENT_2007-03-31_2026-03-31_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 57.13498765495873,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        }
+      ]
+    },
+    {
+      "record_id": "057a",
+      "station_name": "Honolulu, Hawaii",
+      "station_kind": "RQ",
+      "netcdf": "artifacts/datums_predictions/station057/netcdf/057a.nc",
+      "harmonic_artifacts": {
+        "RECENT_1891-03-13_1892-07-13": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057a/RECENT_1891-03-13_1892-07-13_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057a/RECENT_1891-03-13_1892-07-13_harmonics.json"
+        }
+      },
+      "prediction_basis_epoch": "RECENT_1891-03-13_1892-07-13",
+      "prediction_scope": "record_span",
+      "hourly_prediction": {
+        "saved": true,
+        "variable": "hourly_prediction_primary",
+        "start": "1877-06-21 10:00:00",
+        "end": "1892-07-13 09:00:00",
+        "rows": 132024
+      },
+      "minute_highlow_prediction": {
+        "saved": false,
+        "time_variable": null,
+        "height_variable": null,
+        "type_variable": null,
+        "start": null,
+        "end": null,
+        "rows": 0
+      },
+      "update_cycle_months": 60,
+      "update_cycle_reason": "default",
+      "epochs": [
+        {
+          "epoch": {
+            "name": "RECENT_1891-03-13_1892-07-13",
+            "start": "1891-03-13 09:00:00",
+            "end": "1892-07-13 09:00:00",
+            "source": "recent",
+            "completion_fraction": 0.792965081533339,
+            "n_expected": 11713,
+            "n_valid": 9288,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 867.4609164420485,
+            "MHW": 715.2320217096336,
+            "DTL": 585.3989218328841,
+            "MTL": 534.3653296559067,
+            "MSL": 545.744939707149,
+            "MLW": 353.4986376021798,
+            "MLLW": 303.33692722371967,
+            "GT": 564.1239892183289,
+            "MN": 361.7333841074538,
+            "DHQ": 152.22889473241491,
+            "DLQ": 50.16171037846016,
+            "HAT": 1094.9554000707337,
+            "LAT": 166.58935947054005,
+            "p90_low": 334.0,
+            "p95_low": 274.0,
+            "p99_low": 213.0,
+            "p90_high": 821.0,
+            "p95_high": 912.0,
+            "p99_high": 1003.0
+          },
+          "harmonic_constituent_count": 67,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "SA",
+            "O1",
+            "S2",
+            "P1",
+            "SSA",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "H1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057a/RECENT_1891-03-13_1892-07-13_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057a/RECENT_1891-03-13_1892-07-13_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 9288,
+          "hourly_overlap_rows": 9288,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057a/RECENT_1891-03-13_1892-07-13_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057a/RECENT_1891-03-13_1892-07-13_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057a/RECENT_1891-03-13_1892-07-13_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 56.58802922028537,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        }
+      ]
+    },
+    {
+      "record_id": "057b",
+      "station_name": "Honolulu, Hawaii",
+      "station_kind": "RQ",
+      "netcdf": "artifacts/datums_predictions/station057/netcdf/057b.nc",
+      "harmonic_artifacts": {
+        "NTDE_2002-2020": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.json"
+        },
+        "NTDE_1983-2001": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.json"
+        },
+        "IPCC-AR6_1995-2014": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.json"
+        },
+        "RECENT_2002-12-31_2021-12-31": {
+          "pickle": "artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.json"
+        }
+      },
+      "prediction_basis_epoch": "NTDE_2002-2020",
+      "prediction_scope": "long_future",
+      "hourly_prediction": {
+        "saved": true,
+        "variable": "hourly_prediction_primary",
+        "start": "1905-01-01 10:00:00",
+        "end": "2100-12-31 23:00:00",
+        "rows": 1718102
+      },
+      "minute_highlow_prediction": {
+        "saved": true,
+        "time_variable": "minute_highlow_time_primary",
+        "height_variable": "minute_highlow_height_mm_primary",
+        "type_variable": "minute_highlow_type_primary",
+        "start": "2025-01-01 00:00:00",
+        "end": "2030-12-31 23:59:00",
+        "rows": 8440
+      },
+      "update_cycle_months": 60,
+      "update_cycle_reason": "default",
+      "epochs": [
+        {
+          "epoch": {
+            "name": "NTDE_2002-2020",
+            "start": "2002-01-01 00:00:00",
+            "end": "2020-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 1.0,
+            "n_expected": 166560,
+            "n_valid": 166560,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1789.8365886387357,
+            "MHW": 1641.9318756507512,
+            "DTL": 1496.7030714179216,
+            "MTL": 1449.3174502676345,
+            "MSL": 1456.5577149375601,
+            "MLW": 1256.7030248845178,
+            "MLLW": 1203.5695541971074,
+            "GT": 586.2670344416283,
+            "MN": 385.22885076623334,
+            "DHQ": 147.90471298798457,
+            "DLQ": 53.13347068741041,
+            "HAT": 2039.027920055763,
+            "LAT": 1062.8416521154334,
+            "p90_low": 1222.0,
+            "p95_low": 1180.0,
+            "p99_low": 1109.0,
+            "p90_high": 1741.0,
+            "p95_high": 1816.0,
+            "p99_high": 1939.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "NO1",
+            "NU2"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 166560,
+          "hourly_overlap_rows": 166560,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057b/NTDE_2002-2020_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057b/NTDE_2002-2020_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057b/NTDE_2002-2020_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 32.51054510442043,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "NTDE_1983-2001",
+            "start": "1983-01-01 00:00:00",
+            "end": "2001-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 0.9900276176753122,
+            "n_expected": 166560,
+            "n_valid": 164899,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1740.1085843373494,
+            "MHW": 1592.0847037621086,
+            "DTL": 1450.989156626506,
+            "MTL": 1404.002125892354,
+            "MSL": 1411.7390645182809,
+            "MLW": 1215.919548022599,
+            "MLLW": 1161.8697289156626,
+            "GT": 578.2388554216868,
+            "MN": 376.1651557395096,
+            "DHQ": 148.0238805752408,
+            "DLQ": 54.04981910693641,
+            "HAT": 1979.8506241321172,
+            "LAT": 1024.0044956181437,
+            "p90_low": 1183.0,
+            "p95_low": 1140.0,
+            "p99_low": 1070.0,
+            "p90_high": 1689.0,
+            "p95_high": 1764.0,
+            "p99_high": 1881.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "P1",
+            "SA",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "SSA",
+            "NO1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 164899,
+          "hourly_overlap_rows": 164899,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057b/NTDE_1983-2001_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057b/NTDE_1983-2001_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057b/NTDE_1983-2001_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 55.89429446260806,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "IPCC-AR6_1995-2014",
+            "start": "1995-01-01 00:00:00",
+            "end": "2014-12-31 23:00:00",
+            "source": "primary",
+            "completion_fraction": 1.0,
+            "n_expected": 175320,
+            "n_valid": 175320,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1760.76809746423,
+            "MHW": 1614.6065168221658,
+            "DTL": 1470.3530953392833,
+            "MTL": 1423.8807615976002,
+            "MSL": 1431.1003707506275,
+            "MLW": 1233.155006373035,
+            "MLLW": 1179.9380932143363,
+            "GT": 580.8300042498938,
+            "MN": 381.45151044913086,
+            "DHQ": 146.16158064206434,
+            "DLQ": 53.21691315869862,
+            "HAT": 2005.6317526901767,
+            "LAT": 1042.7003677751898,
+            "p90_low": 1205.0,
+            "p95_low": 1163.0,
+            "p99_low": 1094.0,
+            "p90_high": 1710.0,
+            "p95_high": 1784.0,
+            "p99_high": 1900.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "SSA",
+            "NO1"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 175320,
+          "hourly_overlap_rows": 175320,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057b/IPCC-AR6_1995-2014_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057b/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057b/IPCC-AR6_1995-2014_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 35.09772116159905,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        },
+        {
+          "epoch": {
+            "name": "RECENT_2002-12-31_2021-12-31",
+            "start": "2002-12-31 23:00:00",
+            "end": "2021-12-31 23:00:00",
+            "source": "recent",
+            "completion_fraction": 1.0,
+            "n_expected": 166561,
+            "n_valid": 166561,
+            "role": "datum"
+          },
+          "datum": {
+            "tide_type": "Mixed Semidiurnal",
+            "MHHW": 1794.3740867750112,
+            "MHW": 1646.597843064336,
+            "DTL": 1500.7696436558817,
+            "MTL": 1453.9990407394398,
+            "MSL": 1461.192259892772,
+            "MLW": 1261.4002384145433,
+            "MLLW": 1207.1652005367525,
+            "GT": 587.2088862382586,
+            "MN": 385.19760464979277,
+            "DHQ": 147.7762437106751,
+            "DLQ": 54.235037877790774,
+            "HAT": 2046.1086807263596,
+            "LAT": 1066.5938881649445,
+            "p90_low": 1228.0,
+            "p95_low": 1185.0,
+            "p99_low": 1114.0,
+            "p90_high": 1744.0,
+            "p95_high": 1820.0,
+            "p99_high": 1943.0
+          },
+          "harmonic_constituent_count": 68,
+          "top_constituents": [
+            "M2",
+            "K1",
+            "O1",
+            "S2",
+            "SA",
+            "P1",
+            "N2",
+            "K2",
+            "Q1",
+            "J1",
+            "NO1",
+            "NU2"
+          ],
+          "harmonic_artifact": {
+            "pickle": "artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.json"
+          },
+          "hourly_prediction_rows": 0,
+          "hourly_observed_rows": 166561,
+          "hourly_overlap_rows": 166561,
+          "plots": {
+            "datums": "artifacts/datums_predictions/station057/plots/057b/RECENT_2002-12-31_2021-12-31_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station057/plots/057b/RECENT_2002-12-31_2021-12-31_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station057/plots/057b/RECENT_2002-12-31_2021-12-31_hourly_residuals.png",
+            "fd_high_low": null
+          },
+          "comparison_window_rows": 744,
+          "comparison_window_rmse_mm": 43.33392409834492,
+          "fd_high_low_rows": 0,
+          "switch_levels": null
+        }
+      ]
+    }
+  ]
+}
