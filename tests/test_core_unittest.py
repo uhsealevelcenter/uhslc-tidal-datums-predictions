@@ -9,7 +9,7 @@ import xarray as xr
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, cap_prediction_end, clean_hourly_dataframe, compute_datums, fetch_station_metadata_index, fit_harmonics, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, extract_daily_high_low, extract_daily_high_low_chunked, save_harmonic_result, save_netcdf, select_epochs, strip_harmonic_result
+from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, build_prediction_save_plan, cap_prediction_end, clean_hourly_dataframe, compute_datums, determine_update_cycle, fetch_station_metadata_index, fit_harmonics, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, predict_minute_high_low, extract_daily_high_low, extract_daily_high_low_chunked, save_harmonic_result, save_netcdf, select_epochs, select_primary_prediction_epoch, select_recent_epoch, strip_harmonic_result
 
 
 class TestTidalCore(unittest.TestCase):
@@ -82,6 +82,31 @@ class TestTidalCore(unittest.TestCase):
         self.assertEqual(epochs[0].source, 'recent')
         self.assertEqual(epochs[0].role, 'datum')
 
+    def test_select_recent_epoch_allows_three_months(self):
+        df = self.synthetic_hourly(start='2002-01-01 00:00:00', end='2002-04-15 23:00:00')
+        epochs = select_epochs(df)
+        self.assertEqual(len(epochs), 1)
+        self.assertEqual(epochs[0].source, 'recent')
+
+    def test_select_primary_prediction_epoch_uses_hierarchy(self):
+        time = pd.date_range('1983-01-01 00:00:00', '2020-12-31 23:00:00', freq='1h')
+        df = pd.DataFrame({'time': time, 'sea_level': 100.0})
+        epochs = select_epochs(df)
+        self.assertEqual([e.name for e in epochs[:2]], ['NTDE_2002-2020', 'NTDE_1983-2001'])
+        self.assertEqual(select_primary_prediction_epoch(epochs).name, 'NTDE_2002-2020')
+        self.assertEqual(epochs[-1].source, 'recent')
+
+    def test_recent_is_selected_with_fixed_epochs(self):
+        df = self.synthetic_hourly(start='2002-01-01 00:00:00', end='2023-12-31 23:00:00')
+        epochs = select_epochs(df)
+        self.assertIn('NTDE_2002-2020', [e.name for e in epochs])
+        self.assertTrue(any(e.source == 'recent' for e in epochs))
+        self.assertEqual(select_primary_prediction_epoch(epochs).name, 'NTDE_2002-2020')
+        recent = select_recent_epoch(clean_hourly_dataframe(df))
+        self.assertIsNotNone(recent)
+        assert recent is not None
+        self.assertEqual(recent.end, pd.Timestamp('2023-12-31 23:00:00'))
+
     def test_select_prediction_epoch_when_primary_lacks_annual_completion(self):
         df = self.synthetic_hourly(start='1982-01-01 00:00:00', end='2000-12-31 23:00:00')
         epochs = select_epochs(df)
@@ -145,7 +170,7 @@ class TestTidalCore(unittest.TestCase):
 
     def test_cap_prediction_end(self):
         self.assertEqual(cap_prediction_end(pd.Timestamp('2030-01-01 00:00:00')), pd.Timestamp('2030-01-01 00:00:00'))
-        self.assertEqual(cap_prediction_end(pd.Timestamp('2100-12-31 23:00:00')), pd.Timestamp('2035-12-31 23:00:00'))
+        self.assertEqual(cap_prediction_end(pd.Timestamp('2101-01-01 00:00:00')), pd.Timestamp('2100-12-31 23:00:00'))
 
     @patch('core._load_json_url')
     def test_station_metadata_from_live_geojson(self, mock_load_json_url):
@@ -204,6 +229,45 @@ class TestTidalCore(unittest.TestCase):
         hl = predict_fd_high_low(hr)
         self.assertTrue((hl['time'] >= pd.Timestamp('2025-01-01 00:00:00')).all())
         self.assertTrue((hl['time'] <= pd.Timestamp('2030-12-31 23:59:00')).all())
+
+    def test_predict_minute_high_low_accepts_record_span(self):
+        df = self.synthetic_hourly(start='2002-01-01 00:00:00', end='2002-03-31 23:00:00')
+        hr = fit_harmonics(df, latitude=21.3)
+        hl = predict_minute_high_low(hr, start=pd.Timestamp('2002-02-01 00:00:00'), end=pd.Timestamp('2002-02-03 23:59:00'), chunk_days=2)
+        self.assertTrue((hl['time'] >= pd.Timestamp('2002-02-01 00:00:00')).all())
+        self.assertTrue((hl['time'] <= pd.Timestamp('2002-02-03 23:59:00')).all())
+
+    @patch('core._load_json_url')
+    def test_prediction_save_plan_fd_long_future(self, mock_load_json_url):
+        mock_load_json_url.return_value = self.sample_meta_payload()
+        df = self.synthetic_hourly(start='2002-01-01 00:00:00', end='2002-04-15 23:00:00')
+        epochs = select_epochs(df)
+        plan = build_prediction_save_plan(df, epochs, 'FD', station_id='007', runtime=pd.Timestamp('2026-05-01'))
+        self.assertEqual(plan.hourly_start, pd.Timestamp('2002-01-01 00:00:00'))
+        self.assertEqual(plan.hourly_end, pd.Timestamp('2100-12-31 23:00:00'))
+        self.assertEqual(plan.minute_start, pd.Timestamp('2025-01-01 00:00:00'))
+        self.assertEqual(plan.minute_end, pd.Timestamp('2030-12-31 23:59:00'))
+        self.assertEqual(plan.prediction_scope, 'long_future')
+
+    @patch('core._load_json_url')
+    def test_prediction_save_plan_older_rq_record_span(self, mock_load_json_url):
+        mock_load_json_url.return_value = self.sample_meta_payload()
+        df = self.synthetic_hourly(start='1926-01-01 00:00:00', end='1926-04-15 23:00:00')
+        epochs = select_epochs(df)
+        plan = build_prediction_save_plan(df, epochs, 'RQ', station_id='007', version='A', runtime=pd.Timestamp('2026-05-01'))
+        self.assertEqual(plan.hourly_start, pd.Timestamp('1926-01-01 00:00:00'))
+        self.assertEqual(plan.hourly_end, pd.Timestamp('1926-04-15 23:00:00'))
+        self.assertEqual(plan.minute_start, pd.Timestamp('1926-01-01 00:00:00'))
+        self.assertEqual(plan.minute_end, pd.Timestamp('1926-04-15 23:00:00'))
+        self.assertEqual(plan.prediction_scope, 'record_span')
+        self.assertFalse(plan.save_minute_high_low)
+
+    def test_determine_update_cycle_short_recent_record(self):
+        df = self.synthetic_hourly(start='2025-01-01 00:00:00', end='2025-04-15 23:00:00')
+        epochs = select_epochs(df)
+        months, reason = determine_update_cycle(epochs, pd.Timestamp('2025-04-15 23:00:00'))
+        self.assertEqual(months, 3)
+        self.assertEqual(reason, 'short_epoch_recent_record')
 
     def test_netcdf_write(self):
         df = self.synthetic_hourly()

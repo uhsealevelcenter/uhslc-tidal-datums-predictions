@@ -15,7 +15,7 @@ Use this skill when recreating:
 - hourly tide prediction generation
 - FD minute high/low extraction
 - switch elevation handling
-- standard-epoch versus fallback-epoch decisions
+- standard fixed, PREDICTION (abbreviated PRED), and RECENT epoch decisions
 
 ## Inputs
 
@@ -31,11 +31,13 @@ Use GMT timestamps. Use millimeters for exported datum and prediction values.
 
 ## Epoch Selection
 
-Primary standard epochs are:
+Configured epoch hierarchy:
 
-- NTDE_1983-2001
 - NTDE_2002-2020
+- NTDE_1983-2001
 - IPCC-AR6_1995-2014
+- PREDICTION (abbreviated PRED)
+- RECENT
 
 Rules:
 
@@ -44,22 +46,28 @@ Rules:
 - treat missing sentinel values as null
 - compute hourly completeness over each candidate epoch
 - accept a standard epoch when at least 75 percent of expected hourly values are present
-- keep at most three epochs
+- select qualifying fixed epochs in hierarchy order
 
-Prediction-specific epoch:
+PREDICTION (abbreviated PRED) epoch:
 
 - after accepting standard epochs, check whether any accepted standard epoch has at least 75 percent hourly completion in every calendar year within that epoch
 - if none of the accepted standard epochs meets that annual criterion, add one `PRED_YYYY_YYYY` epoch when a 19-calendar-year window can meet at least 75 percent hourly completion in every year
 - use `source = prediction` and `role = harmonic_prediction` for `PRED_YYYY_YYYY`
 - keep the standard `NTDE_*` or `IPCC-AR6_*` epoch for datum comparability; the `PRED_*` epoch exists to support a better-conditioned harmonic fit for tide prediction
-- this is rare, but a station record may therefore have up to four epochs
+- this is rare, but because RECENT is also selected when it qualifies, a station record may have up to five epochs: three fixed epochs, one `PRED_*` epoch, and one `RECENT_*` epoch
 
-If no standard epoch qualifies:
+RECENT epoch:
 
-- require at least about six months of valid hourly data
-- define one most-recent fallback epoch
-- do not exceed 19 years
-- label it as a recent/custom epoch instead of silently relabeling it as a standard epoch
+- RECENT is a dynamic standard epoch selected after the fixed epochs and any PREDICTION (abbreviated PRED) epoch
+- require at least about three months of valid hourly data
+- use the most recent qualifying data span
+- do not exceed 19 full calendar years
+- label it explicitly as `RECENT_*`
+
+Update cadence:
+
+- use a 5-year update cycle by default
+- use a 3-month update cycle when the longest selected epoch is shorter than 5 years and the record ends in 2025 or later
 
 ## Datums
 
@@ -128,30 +136,47 @@ Fit harmonics over the full epoch in one solve using UTide-style harmonic analys
 
 Guidance:
 
+- clean the hourly data first, then drop null sea-level rows
+- require at least 30 days of valid hourly observations before fitting
 - use the station latitude
-- keep nodal corrections enabled
-- retain the linear trend in the solve
-- disable confidence-interval estimation for the solve when mirroring the legacy nostats workflow
+- pass datetime arrays directly to Python UTide rather than Matplotlib date numbers
+- call `utide.solve()` with `trend=True`, `method='ols'`, `nodal=True`, `conf_int='none'`, and `verbose=False`
+- retain the linear trend in the solve, matching the legacy epoch-wide analysis
+- disable confidence-interval estimation with `conf_int='none'`, matching the legacy `nostats` workflow and reducing memory pressure
 - do not mutate the fitted coefficients in place
+- save both a JSON harmonic summary and a pickle artifact containing the reconstructable UTide coefficient object
 
 The harmonic summary saved in the NetCDF is not by itself sufficient for later prediction unless the reconstructable harmonic state is also preserved elsewhere.
 
 ## Tide Predictions
 
+Saved predictions are record-level products generated from the primary
+prediction epoch. Non-primary epochs still calculate in-epoch predictions in
+memory for datum calculation, including HAT and LAT, but do not save prediction
+series.
+
+Primary prediction epoch priority:
+
+- use `PRED_*` first when present
+- otherwise use the first selected fixed epoch in the configured hierarchy
+- otherwise use `RECENT_*`
+
 Hourly predictions:
 
-- FD: predict from epoch start through 2035-12-31 23:00
-- RQ: predict only over the available epoch
+- FD and most recent RQ version: predict from record start through 2100-12-31 23:00
+- older RQ versions: predict from record start through record end
 
-FD minute predictions:
+Minute high/low predictions:
 
-- generate minute predictions from 2025-01-01 00:00 through 2030-12-31 23:59
+- FD and most recent RQ version: generate minute predictions from the start of the year before runtime through the end of runtime year plus four. A runtime during 2026 gives 2025-01-01 00:00 through 2030-12-31 23:59
+- older RQ versions: do not save minute high/low predictions
 - save only extracted daily high/low event times and heights
 
 When reconstructing predictions from harmonics:
 
 - use the fitted constituent set
-- remove trend during reconstruction
+- reconstruct with `utide.reconstruct()` using the fitted constituent list and `min_SNR=0`
+- remove trend during reconstruction by setting a copied coefficient object's slope to zero
 - preserve the original fit object for reuse
 
 ## Switch Elevations

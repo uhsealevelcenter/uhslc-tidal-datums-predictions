@@ -8,17 +8,16 @@ import pandas as pd
 import numpy as np
 
 from core import (
-    cap_prediction_end, clean_hourly_dataframe, select_epochs, compute_datums,
+    build_prediction_save_plan, clean_hourly_dataframe, select_epochs, compute_datums,
     fit_harmonics, load_harmonic_result, predict_from_harmonics,
-    predict_fd_high_low,
+    predict_minute_high_low,
     build_datums_only_dataset, build_netcdf_dataset, save_harmonic_result,
     save_netcdf, strip_harmonic_result, fetch_fd_hourly, fetch_rq_hourly,
     get_station_metadata, get_station_switch_levels,
-    get_rq_metadata_span
 )
 
 
-def process_df(df, station_id, station_name, station_kind, latitude, output_dir, end_hourly_fd='2035-12-31 23:00:00', include_fd_minute_highlow=True, datums_only=False):
+def process_df(df, station_id, station_name, station_kind, latitude, output_dir, version=None, runtime=None, datums_only=False):
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
     df = clean_hourly_dataframe(df)
@@ -34,6 +33,16 @@ def process_df(df, station_id, station_name, station_kind, latitude, output_dir,
     harmonic_artifacts = {}
     minute_highlow_by_epoch = {}
     harmonics_dir = outdir / 'harmonics'
+    prediction_plan = None
+    if not datums_only:
+        prediction_plan = build_prediction_save_plan(
+            df,
+            epochs,
+            station_kind,
+            station_id=base_station_id,
+            version=version,
+            runtime=runtime,
+        )
 
     for ep in epochs:
         sub = df[(df['time'] >= ep.start) & (df['time'] <= ep.end)].copy()
@@ -64,25 +73,35 @@ def process_df(df, station_id, station_name, station_kind, latitude, output_dir,
             gc.collect()
             continue
         harmonics_by_epoch[ep.name] = harmonics_summary
-        pred_end = cap_prediction_end(pd.Timestamp(end_hourly_fd) if station_kind == 'FD' else ep.end)
-        if pred_end == ep.end:
-            hourly_predictions[ep.name] = epoch_prediction
-        else:
-            hourly_predictions[ep.name] = predict_from_harmonics(harmonics, ep.start, pred_end, freq='1h')
-        if station_kind == 'FD' and include_fd_minute_highlow:
-            minute_highlow_by_epoch[ep.name] = predict_fd_high_low(harmonics)
         del harmonics, sub, epoch_prediction
+        gc.collect()
+
+    if not datums_only and prediction_plan is not None:
+        basis_harmonics = load_harmonic_result(harmonic_artifacts[prediction_plan.basis_epoch]['pickle'])
+        hourly_predictions['primary'] = predict_from_harmonics(
+            basis_harmonics,
+            prediction_plan.hourly_start,
+            prediction_plan.hourly_end,
+            freq='1h',
+        )
+        if prediction_plan.save_minute_high_low:
+            minute_highlow_by_epoch['primary'] = predict_minute_high_low(
+                basis_harmonics,
+                start=prediction_plan.minute_start,
+                end=prediction_plan.minute_end,
+            )
+        del basis_harmonics
         gc.collect()
 
     if datums_only:
         ds = build_datums_only_dataset(station_id, station_name, station_kind, epochs, datum_by_epoch, switch_levels=switch_levels)
     else:
-        ds = build_netcdf_dataset(station_id, station_name, station_kind, epochs, datum_by_epoch, harmonics_by_epoch, hourly_predictions, switch_levels=switch_levels)
+        ds = build_netcdf_dataset(station_id, station_name, station_kind, epochs, datum_by_epoch, harmonics_by_epoch, hourly_predictions, switch_levels=switch_levels, prediction_plan=prediction_plan)
     for ep_name, hl in minute_highlow_by_epoch.items():
         if not hl.empty:
-            ds[f'fd_highlow_time_{ep_name}'] = ([f'fd_hl_{ep_name}'], hl['time'].to_numpy(dtype='datetime64[ns]'))
-            ds[f'fd_highlow_height_mm_{ep_name}'] = ([f'fd_hl_{ep_name}'], np.rint(hl['height_mm'].to_numpy(dtype=float)).astype(np.int32))
-            ds[f'fd_highlow_type_{ep_name}'] = ([f'fd_hl_{ep_name}'], hl['type'].astype(str).to_numpy())
+            ds[f'minute_highlow_time_{ep_name}'] = ([f'minute_hl_{ep_name}'], hl['time'].to_numpy(dtype='datetime64[ns]'))
+            ds[f'minute_highlow_height_mm_{ep_name}'] = ([f'minute_hl_{ep_name}'], np.rint(hl['height_mm'].to_numpy(dtype=float)).astype(np.int32))
+            ds[f'minute_highlow_type_{ep_name}'] = ([f'minute_hl_{ep_name}'], hl['type'].astype(str).to_numpy())
 
     outpath = outdir / f'{station_id}.nc'
     save_netcdf(ds, str(outpath))
@@ -90,6 +109,7 @@ def process_df(df, station_id, station_name, station_kind, latitude, output_dir,
         'output_netcdf': str(outpath),
         'harmonic_artifacts': harmonic_artifacts,
         'epochs': [e.name for e in epochs],
+        'prediction_basis_epoch': None if prediction_plan is None else prediction_plan.basis_epoch,
         'station_name': station_name,
         'station_kind': station_kind,
     }
@@ -122,10 +142,10 @@ def main():
         latitude = args.latitude if args.latitude is not None else (meta.latitude if meta is not None else None)
         if latitude is None:
             raise SystemExit('--latitude is required when station metadata is unavailable')
-        result = process_df(df, args.station_id, station_name, args.station_kind, latitude, args.output_dir, datums_only=args.datums_only)
+        result = process_df(df, args.station_id, station_name, args.station_kind, latitude, args.output_dir, version=args.version, datums_only=args.datums_only)
     elif args.mode == 'fd':
         start = args.start or '1800-01-01'
-        end = args.end or '2035-12-31'
+        end = args.end or '2100-12-31'
         df = fetch_fd_hourly(args.station_id, start, end)
         meta = get_station_metadata(args.station_id)
         station_name = str(df['station_name'].dropna().iloc[0]) if len(df.dropna(subset=['station_name'])) else (args.station_name or meta.name)
@@ -144,7 +164,7 @@ def main():
         station_name = str(df['station_name'].dropna().iloc[0]) if len(df.dropna(subset=['station_name'])) else (args.station_name or meta.name)
         latitude = args.latitude if args.latitude is not None else meta.latitude
         station_record = f"{args.station_id}{args.version.lower()}"
-        result = process_df(df[['time','sea_level']], station_record, station_name, 'RQ', latitude, args.output_dir, datums_only=args.datums_only)
+        result = process_df(df[['time','sea_level']], station_record, station_name, 'RQ', latitude, args.output_dir, version=args.version, datums_only=args.datums_only)
 
     print(json.dumps(result))
 

@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 import pickle
 import re
+import subprocess
 import time
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -17,7 +19,16 @@ import xarray as xr
 import requests
 import yaml
 from scipy.signal import find_peaks
+
+warnings.filterwarnings(
+    'ignore',
+    message=r'dtype\(\): align should be passed as Python or NumPy boolean.*',
+    category=np.exceptions.VisibleDeprecationWarning,
+    module=r'numpy\.lib\._format_impl',
+)
 from utide import solve, reconstruct
+
+from tidal_config import EPOCH_POLICY, PREDICTION_POLICY, minute_prediction_window
 
 MISSING_VALUE = -32767
 ERDDAP_BASE = 'https://uhslc.soest.hawaii.edu/erddap/tabledap'
@@ -27,15 +38,10 @@ DIN_INDEX_URL = 'https://uhslc.soest.hawaii.edu/mwidlans/dev/metadata/din/'
 SWITCH_LEVELS_CSV = Path(__file__).resolve().parent / 'data' / 'switch_levels.csv'
 SKILL_RELATIVE_PATH = Path('artifacts') / 'skills' / 'uhslc-tidal-datums-predictions' / 'SKILL.md'
 SKILL_PATH = Path(__file__).resolve().parent / SKILL_RELATIVE_PATH
-SKILL_REMOTE_URL = 'https://raw.githubusercontent.com/uhsealevelcenter/uhslc-tidal-datums-predictions/skills/artifacts/skills/uhslc-tidal-datums-predictions/SKILL.md'
-PRIMARY_EPOCHS = [
-    ("NTDE_1983-2001", pd.Timestamp("1983-01-01 00:00:00"), pd.Timestamp("2001-12-31 23:00:00")),
-    ("NTDE_2002-2020", pd.Timestamp("2002-01-01 00:00:00"), pd.Timestamp("2020-12-31 23:00:00")),
-    ("IPCC-AR6_1995-2014", pd.Timestamp("1995-01-01 00:00:00"), pd.Timestamp("2014-12-31 23:00:00")),
-]
-MAX_PREDICTION_END = pd.Timestamp("2035-12-31 23:00:00")
-MAX_MINUTE_PREDICTION_START = pd.Timestamp("2025-01-01 00:00:00")
-MAX_MINUTE_PREDICTION_END = pd.Timestamp("2030-12-31 23:59:00")
+SKILL_REMOTE_URL_TEMPLATE = 'https://raw.githubusercontent.com/uhsealevelcenter/uhslc-tidal-datums-predictions/{branch}/artifacts/skills/uhslc-tidal-datums-predictions/SKILL.md'
+PRIMARY_EPOCHS = tuple((e.name, e.start, e.end) for e in EPOCH_POLICY.fixed_epochs)
+MAX_PREDICTION_END = PREDICTION_POLICY.long_hourly_end
+MAX_MINUTE_PREDICTION_START, MAX_MINUTE_PREDICTION_END = minute_prediction_window(pd.Timestamp("2026-01-01"))
 TIDE_TYPE_EQUALITY_FRACTION = 0.10
 
 @dataclass
@@ -48,6 +54,19 @@ class Epoch:
     n_expected: int
     n_valid: int
     role: str = 'datum'
+
+
+@dataclass(frozen=True)
+class PredictionSavePlan:
+    basis_epoch: str
+    hourly_start: pd.Timestamp
+    hourly_end: pd.Timestamp
+    minute_start: pd.Timestamp
+    minute_end: pd.Timestamp
+    save_minute_high_low: bool
+    prediction_scope: str
+    update_cycle_months: int
+    update_cycle_reason: str
 
 @dataclass
 class HarmonicResult:
@@ -127,20 +146,36 @@ def _parse_skill_frontmatter(skill_text: str) -> dict:
     return metadata
 
 
+def get_current_git_branch(default: str = 'main') -> str:
+    try:
+        result = subprocess.run(
+            ['git', 'branch', '--show-current'],
+            cwd=Path(__file__).resolve().parent,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return default
+    branch = result.stdout.strip()
+    return branch or default
+
+
 @lru_cache(maxsize=1)
 def get_netcdf_skill_reference() -> SkillReference:
     skill_text = build_netcdf_skill_text()
     metadata = _parse_skill_frontmatter(skill_text)
+    branch = get_current_git_branch()
     return SkillReference(
         name=str(metadata['name']),
         description=str(metadata['description']),
         local_path=SKILL_RELATIVE_PATH.as_posix(),
-        remote_url=SKILL_REMOTE_URL,
+        remote_url=SKILL_REMOTE_URL_TEMPLATE.format(branch=branch),
     )
 
 
 def cap_prediction_end(end: pd.Timestamp) -> pd.Timestamp:
-    return min(pd.Timestamp(end), MAX_PREDICTION_END)
+    return min(pd.Timestamp(end), PREDICTION_POLICY.long_hourly_end)
 
 
 def snap_to_hour(times: pd.Series) -> pd.Series:
@@ -468,33 +503,23 @@ def select_prediction_epoch(df: pd.DataFrame, min_annual_fraction: float = 0.75)
     )
 
 
-def select_epochs(df: pd.DataFrame, min_fraction: float = 0.75, min_months_recent: int = 6) -> List[Epoch]:
-    df = clean_hourly_dataframe(df)
-    epochs: List[Epoch] = []
-    for name, start, end in PRIMARY_EPOCHS:
-        expected, valid_n, frac = epoch_completion(df, start, end)
-        if frac >= min_fraction:
-            epochs.append(Epoch(name=name, start=start, end=end, source='primary', completion_fraction=frac, n_expected=expected, n_valid=valid_n))
-
-    if epochs:
-        if not any(has_minimum_annual_completion(df, e.start, e.end, min_fraction) for e in epochs):
-            pred_epoch = select_prediction_epoch(df, min_annual_fraction=min_fraction)
-            if pred_epoch is not None and pred_epoch.name not in {e.name for e in epochs}:
-                epochs.append(pred_epoch)
-        return epochs[:4]
-
+def select_recent_epoch(
+    df: pd.DataFrame,
+    min_fraction: float = EPOCH_POLICY.min_completion_fraction,
+    min_months_recent: int = EPOCH_POLICY.min_recent_months,
+) -> Epoch | None:
     valid = df.dropna(subset=['sea_level'])
     if valid.empty:
-        return []
+        return None
 
     data_start = valid['time'].min().floor('h')
     data_end = valid['time'].max().floor('h')
     min_span = pd.Timedelta(days=30 * min_months_recent)
     if (data_end - data_start) < min_span:
-        return []
+        return None
 
-    best = None
-    for months in range(228, min_months_recent - 1, -1):
+    max_recent_months = EPOCH_POLICY.max_recent_years * 12
+    for months in range(max_recent_months, min_months_recent - 1, -1):
         start = data_end - pd.DateOffset(months=months)
         if start < data_start:
             start = data_start
@@ -502,13 +527,132 @@ def select_epochs(df: pd.DataFrame, min_fraction: float = 0.75, min_months_recen
             continue
         expected, valid_n, frac = epoch_completion(df, start, data_end)
         if frac > min_fraction:
-            best = (start, data_end, expected, valid_n, frac)
-            break
+            return Epoch(
+                name=f'RECENT_{start.date()}_{data_end.date()}',
+                start=start,
+                end=data_end,
+                source='recent',
+                completion_fraction=frac,
+                n_expected=expected,
+                n_valid=valid_n,
+            )
+    return None
 
-    if best is not None:
-        start, end, expected, valid_n, frac = best
-        epochs.append(Epoch(name=f'RECENT_{start.date()}_{end.date()}', start=start, end=end, source='recent', completion_fraction=frac, n_expected=expected, n_valid=valid_n))
-    return epochs[:3]
+
+def select_epochs(
+    df: pd.DataFrame,
+    min_fraction: float = EPOCH_POLICY.min_completion_fraction,
+    min_months_recent: int = EPOCH_POLICY.min_recent_months,
+) -> List[Epoch]:
+    df = clean_hourly_dataframe(df)
+    epochs: List[Epoch] = []
+    for spec in EPOCH_POLICY.fixed_epochs:
+        name, start, end = spec.name, spec.start, spec.end
+        expected, valid_n, frac = epoch_completion(df, start, end)
+        if frac >= min_fraction:
+            epochs.append(Epoch(name=name, start=start, end=end, source=spec.source, role=spec.role, completion_fraction=frac, n_expected=expected, n_valid=valid_n))
+
+    if epochs:
+        if not any(has_minimum_annual_completion(df, e.start, e.end, min_fraction) for e in epochs):
+            pred_epoch = select_prediction_epoch(df, min_annual_fraction=min_fraction)
+            if pred_epoch is not None and pred_epoch.name not in {e.name for e in epochs}:
+                epochs.append(pred_epoch)
+
+    recent_epoch = select_recent_epoch(df, min_fraction=min_fraction, min_months_recent=min_months_recent)
+    if recent_epoch is not None:
+        selected_spans = {(e.start, e.end) for e in epochs}
+        if (recent_epoch.start, recent_epoch.end) not in selected_spans:
+            epochs.append(recent_epoch)
+    return epochs
+
+
+def select_primary_prediction_epoch(epochs: List[Epoch]) -> Epoch:
+    if not epochs:
+        raise ValueError('No epochs available for primary prediction selection.')
+    prediction_epochs = [e for e in epochs if e.source == 'prediction' or e.role == 'harmonic_prediction']
+    if prediction_epochs:
+        return prediction_epochs[0]
+
+    hierarchy = [spec.name for spec in EPOCH_POLICY.fixed_epochs]
+    by_name = {e.name: e for e in epochs}
+    for name in hierarchy:
+        if name in by_name:
+            return by_name[name]
+    return epochs[0]
+
+
+def _record_prediction_window(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
+    valid = clean_hourly_dataframe(df).dropna(subset=['sea_level'])
+    if valid.empty:
+        raise ValueError('No valid hourly data available for prediction window.')
+    return valid['time'].min().floor('h'), valid['time'].max().floor('h')
+
+
+def determine_update_cycle(epochs: List[Epoch], record_end: pd.Timestamp) -> tuple[int, str]:
+    if not epochs:
+        return EPOCH_POLICY.default_update_years * 12, 'default_no_epochs'
+    longest_days = max((e.end - e.start) / pd.Timedelta(days=1) for e in epochs)
+    short_record_days = EPOCH_POLICY.short_record_years * 365.25
+    if longest_days < short_record_days and pd.Timestamp(record_end).year >= EPOCH_POLICY.short_record_recent_end_year:
+        return EPOCH_POLICY.short_record_update_months, 'short_epoch_recent_record'
+    return EPOCH_POLICY.default_update_years * 12, 'default'
+
+
+def is_most_recent_rq_version(station_id: str, version: str | None) -> bool:
+    if version is None:
+        return False
+    version = str(version).upper()
+    try:
+        meta = get_station_metadata(station_id)
+    except KeyError:
+        return False
+    spans = []
+    for raw_version, version_meta in meta.rq_versions.items():
+        end_value = version_meta.get('end') if isinstance(version_meta, dict) else None
+        if end_value is None:
+            continue
+        end = pd.to_datetime(end_value, utc=True).tz_localize(None)
+        spans.append((end, str(raw_version).upper()))
+    if not spans:
+        return False
+    latest_end = max(end for end, _version in spans)
+    latest_versions = {rq_version for end, rq_version in spans if end == latest_end}
+    return version in latest_versions
+
+
+def build_prediction_save_plan(
+    df: pd.DataFrame,
+    epochs: List[Epoch],
+    station_kind: str,
+    station_id: str | None = None,
+    version: str | None = None,
+    runtime: pd.Timestamp | None = None,
+) -> PredictionSavePlan:
+    basis = select_primary_prediction_epoch(epochs)
+    record_start, record_end = _record_prediction_window(df)
+    is_fd = station_kind.upper() == 'FD'
+    is_recent_rq = station_kind.upper() == 'RQ' and station_id is not None and is_most_recent_rq_version(station_id, version)
+    if is_fd or is_recent_rq:
+        hourly_end = PREDICTION_POLICY.long_hourly_end
+        minute_start, minute_end = minute_prediction_window(runtime)
+        scope = 'long_future'
+    else:
+        hourly_end = record_end
+        minute_start, minute_end = record_start, record_end
+        scope = 'record_span'
+    save_minute_high_low = is_fd or is_recent_rq
+    update_cycle_months, update_cycle_reason = determine_update_cycle(epochs, record_end)
+    return PredictionSavePlan(
+        basis_epoch=basis.name,
+        hourly_start=record_start,
+        hourly_end=hourly_end,
+        minute_start=minute_start,
+        minute_end=minute_end,
+        save_minute_high_low=save_minute_high_low,
+        prediction_scope=scope,
+        update_cycle_months=update_cycle_months,
+        update_cycle_reason=update_cycle_reason,
+    )
 
 
 def _tidal_day_windows(times: pd.Series, values: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -819,19 +963,33 @@ def extract_daily_high_low_chunked(
     return out[['time', 'height_mm', 'type']]
 
 
-def predict_fd_high_low(
+def predict_minute_high_low(
     harmonics: HarmonicResult,
+    start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
     chunk_days: int = 31,
 ) -> pd.DataFrame:
-    minute_end = min(pd.Timestamp(end), MAX_MINUTE_PREDICTION_END) if end is not None else MAX_MINUTE_PREDICTION_END
-    minute_start = MAX_MINUTE_PREDICTION_START
+    minute_start = pd.Timestamp(start) if start is not None else MAX_MINUTE_PREDICTION_START
+    minute_end = pd.Timestamp(end) if end is not None else MAX_MINUTE_PREDICTION_END
     if minute_end <= minute_start:
         return pd.DataFrame(columns=['time', 'height_mm', 'type'])
     return extract_daily_high_low_chunked(
         harmonics,
         minute_start,
         minute_end,
+        chunk_days=chunk_days,
+    )
+
+
+def predict_fd_high_low(
+    harmonics: HarmonicResult,
+    end: pd.Timestamp | None = None,
+    chunk_days: int = 31,
+) -> pd.DataFrame:
+    return predict_minute_high_low(
+        harmonics,
+        start=MAX_MINUTE_PREDICTION_START,
+        end=(min(pd.Timestamp(end), MAX_MINUTE_PREDICTION_END) if end is not None else MAX_MINUTE_PREDICTION_END),
         chunk_days=chunk_days,
     )
 
@@ -901,7 +1059,17 @@ def build_datums_only_dataset(station_id: str, station_name: str, station_kind: 
     return _attach_skill(ds)
 
 
-def build_netcdf_dataset(station_id: str, station_name: str, station_kind: str, epochs: List[Epoch], datum_by_epoch: Dict[str, DatumResult], harmonics_by_epoch: Dict[str, HarmonicResult], hourly_predictions: Dict[str, pd.DataFrame], switch_levels: SwitchLevel | None = None) -> xr.Dataset:
+def build_netcdf_dataset(
+    station_id: str,
+    station_name: str,
+    station_kind: str,
+    epochs: List[Epoch],
+    datum_by_epoch: Dict[str, DatumResult],
+    harmonics_by_epoch: Dict[str, HarmonicResult],
+    hourly_predictions: Dict[str, pd.DataFrame],
+    switch_levels: SwitchLevel | None = None,
+    prediction_plan: PredictionSavePlan | None = None,
+) -> xr.Dataset:
     epoch_names = [e.name for e in epochs]
     max_const = max((len(harmonics_by_epoch[e].constituent for e in epoch_names)), default=0) if False else max((len(harmonics_by_epoch[e].constituent) for e in epoch_names), default=0)
     const_arr = np.full((len(epoch_names), max_const), '', dtype=object)
@@ -939,8 +1107,18 @@ def build_netcdf_dataset(station_id: str, station_name: str, station_kind: str, 
     ds['harmonic_amplitude_mm'] = xr.DataArray(_round_mm_array(amp_arr), dims=['epoch', 'constituent_index'])
     ds['harmonic_phase_deg'] = xr.DataArray(np.array(np.rint(phase_arr), dtype=np.int32), dims=['epoch', 'constituent_index'])
 
-    for e in epoch_names:
-        pred = hourly_predictions.get(e)
+    if prediction_plan is not None:
+        ds.attrs['prediction_basis_epoch'] = prediction_plan.basis_epoch
+        ds.attrs['prediction_scope'] = prediction_plan.prediction_scope
+        ds.attrs['prediction_start'] = str(prediction_plan.hourly_start)
+        ds.attrs['prediction_end'] = str(prediction_plan.hourly_end)
+        ds.attrs['minute_highlow_prediction_start'] = str(prediction_plan.minute_start)
+        ds.attrs['minute_highlow_prediction_end'] = str(prediction_plan.minute_end)
+        ds.attrs['update_cycle_months'] = int(prediction_plan.update_cycle_months)
+        ds.attrs['update_cycle_reason'] = prediction_plan.update_cycle_reason
+
+    prediction_items = list(hourly_predictions.items())
+    for e, pred in prediction_items:
         if pred is not None and not pred.empty:
             ds[f'hourly_prediction_{e}'] = xr.DataArray(_round_mm_array(pred['prediction_mm'].to_numpy(dtype=float)), dims=[f'time_{e}'], coords={f'time_{e}': pred['time'].to_numpy(dtype='datetime64[ns]')})
 

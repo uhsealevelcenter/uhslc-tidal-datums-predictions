@@ -15,8 +15,8 @@ It is prepared for handoff into another repository or another computer.
 ### Core scripts
 - `core.py` — main processing logic
 - `tidal_batch.py` — command-line driver
-- `scripts/run_station_full_test.py` — full real-data diagnostic runner for one station
-- `scripts/run_station_datum_test.py` — datums-only real-data diagnostic runner for one station
+- `scripts/run_station_datums_predictions.py` — datums/predictions runner for one, multiple, or all stations
+- `scripts/run_station_datums_only.py` — datums-only runner for one, multiple, or all stations
 - `scripts/update_switch_levels.py` — refresh cached `LEV`/`LEVB` elevations from the live `.din` directory
 - `tests/test_core_unittest.py` — unit tests using `unittest`
 
@@ -30,8 +30,8 @@ It is prepared for handoff into another repository or another computer.
 
 ### Artifacts
 - `artifacts/skills/uhslc-tidal-datums-predictions/SKILL.md` — Skill library entry referenced by generated NetCDFs
-- `artifacts/full_test/station###/` — full diagnostic outputs, including NetCDFs, harmonics, plots, and summaries
-- `artifacts/datum_test/station###/` — datums-only diagnostic outputs, including datums-only NetCDFs, harmonics, plots, and summaries
+- `artifacts/datums_predictions/station###/` — full datums/predictions outputs, including NetCDFs, harmonics, plots, and summaries
+- `artifacts/datums_only/station###/` — datums-only diagnostic outputs, including datums-only NetCDFs, harmonics, plots, and summaries
 
 ## Environment Assumptions
 This prototype was developed in Python 3.11 and used:
@@ -62,8 +62,8 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 - Real FD prototype outputs were successfully generated earlier for stations `001`, `002`, `003`, and `007` using shorter operational windows.
 - Full RQ ERDDAP spans were confirmed for station `002` versions `A`, `B`, `C`, `D`.
 - Live loader integration tests now pass for station `007` FD and RQ versions `A` and `B`.
-- FD outputs now save chunked minute-derived daily high/low prediction events through `2035-12-31 23:00`.
-- Station diagnostic runners now accept `--station-id` and write to `artifacts/full_test/station###/` and `artifacts/datum_test/station###/`.
+- Saved predictions are now record-level products based on the primary prediction epoch.
+- Station diagnostic runners now accept `--station-id` and write to `artifacts/datums_predictions/station###/` and `artifacts/datums_only/station###/`.
 
 ### Known limitations
 - Full-record end-to-end processing for FD `001` was killed by the OS (`return code -9`), likely due to resource pressure in the current implementation.
@@ -80,35 +80,45 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 5. **Add integration tests** for real ERDDAP station runs.
 
 ## Epoch Selection Summary
-- Primary epochs are `NTDE_1983-2001`, `NTDE_2002-2020`, and `IPCC-AR6_1995-2014`.
+- Configured epoch hierarchy is `NTDE_2002-2020`, `NTDE_1983-2001`, `IPCC-AR6_1995-2014`, `PREDICTION (abbreviated PRED)`, and `RECENT`.
 - Primary epochs are accepted when total hourly data completion is at least 75%.
-- If at least one primary epoch qualifies but no qualifying primary epoch has at least 75% completion in every calendar year, the code may add one prediction-specific `PRED_YYYY_YYYY` epoch when a 19-calendar-year window meets the 75% annual threshold in every year.
+- If at least one primary epoch qualifies but no qualifying primary epoch has at least 75% completion in every calendar year, the code may add one `PREDICTION (abbreviated PRED)` epoch named `PRED_YYYY_YYYY` when a 19-calendar-year window meets the 75% annual threshold in every year.
 - `PRED_*` epochs are tagged with `epoch_source = prediction` and `epoch_role = harmonic_prediction`; they preserve standard datum comparability while allowing a better-conditioned harmonic fit for prediction.
-- If no primary epoch qualifies, the code falls back to one most-recent `RECENT_*` epoch when the record has enough valid data.
+- `RECENT_*` is a dynamic standard epoch selected after the fixed epochs and any `PREDICTION (abbreviated PRED)` epoch when the record has at least 3 months of sufficiently complete recent data, up to a 19-year span.
+- A station record can have up to five selected epochs: three fixed epochs, one `PRED_*` epoch, and one `RECENT_*` epoch.
+- All selected epochs calculate in-epoch predictions for datum calculations, but only the primary prediction epoch is used for saved prediction products.
+- Saved prediction basis is `PRED_*` when present, otherwise the first selected fixed epoch in the configured hierarchy, otherwise `RECENT_*`.
+- Update cadence is 5 years by default, or 3 months when the longest selected epoch is shorter than 5 years and the record ends in 2025 or later.
 
-## Basic Usage
+## Run Commands
 
 The examples that generate plots set `MPLCONFIGDIR=/tmp/mplconfig` so
 Matplotlib writes its config and font-cache files outside the repository and
 avoids home-directory permission issues in sandboxed environments.
 
-Use the station test scripts when you want diagnostics: they run FD plus all
-available RQ versions for one station, write plots, save harmonic artifacts, and
-produce summaries for review. Use `tidal_batch.py` when you want the
-production-style command-line path for generating NetCDF products for a specific
-FD, RQ, or CSV input.
+Use `scripts/run_station_datums_predictions.py` for the full `datums_predictions`
+product. It runs FD plus all metadata-listed RQ versions for each requested
+station, writes NetCDFs, harmonic artifacts, plots, `summary.json`, and
+`summary.md`.
 
-### Run unit tests
+Use `scripts/run_station_datums_only.py` for the `datums_only` product. It runs
+the same station/RQ record set but writes datums-only NetCDFs and summaries
+without saved harmonic constituent variables or saved prediction series.
+
+Both scripts accept a single station id, a comma-separated station list, or
+`all`.
+
+### Unit Tests
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-### Run live station 007 loader integration test
+### Live Loader Integration Test
 ```bash
 RUN_LIVE_UHSLC=1 MPLCONFIGDIR=/tmp/mplconfig python3 -m unittest tests.test_live_station007 -v
 ```
 
-### Refresh cached switch elevations
+### Refresh Switch Elevations
 ```bash
 python scripts/update_switch_levels.py
 ```
@@ -116,21 +126,91 @@ python scripts/update_switch_levels.py
 Run this before generating real-data outputs when you want the latest available
 `LEV`/`LEVB` values in NetCDFs and datum plots.
 
-### Run a full real-data station diagnostic
+### Datums Predictions
+
+Run one station:
+
 ```bash
-MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_full_test.py --station-id 002
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_predictions.py --station-id 002
 ```
 
-Outputs are written under `artifacts/full_test/station002/`.
+Outputs are written under `artifacts/datums_predictions/station002/`.
 
-### Run a datums-only real-data station diagnostic
+Run multiple stations:
+
 ```bash
-MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datum_test.py --station-id 002
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_predictions.py --station-id 001,002,007
 ```
 
-Outputs are written under `artifacts/datum_test/station002/`.
+Outputs are written under one directory per station:
 
-### Update tide type in existing NetCDF outputs
+```text
+artifacts/datums_predictions/station001/
+artifacts/datums_predictions/station002/
+artifacts/datums_predictions/station007/
+```
+
+Run all metadata-listed stations:
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_predictions.py --station-id all
+```
+
+This can be long-running and network/resource intensive because it processes FD
+and all listed RQ versions for every station.
+
+### Datums Only
+
+Run one station:
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_only.py --station-id 002
+```
+
+Outputs are written under `artifacts/datums_only/station002/`.
+
+Run multiple stations:
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_only.py --station-id 001,002,007
+```
+
+Run all metadata-listed stations:
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig python scripts/run_station_datums_only.py --station-id all
+```
+
+### Production-Style Single-Record CLI
+
+`tidal_batch.py` processes one FD, RQ version, or CSV input at a time. Use this
+when you need direct control over one output directory or one input record.
+
+FD datums/predictions:
+
+```bash
+python tidal_batch.py --mode fd --station-id 001 --station-kind FD --output-dir outputs
+```
+
+FD datums only:
+
+```bash
+python tidal_batch.py --mode fd --station-id 001 --station-kind FD --output-dir outputs --datums-only
+```
+
+RQ datums/predictions:
+
+```bash
+python tidal_batch.py --mode rq --station-id 002 --station-kind RQ --version A --output-dir outputs
+```
+
+RQ datums only:
+
+```bash
+python tidal_batch.py --mode rq --station-id 002 --station-kind RQ --version A --output-dir outputs --datums-only
+```
+
+### Update Tide Type In Existing NetCDF Outputs
 ```bash
 MPLCONFIGDIR=/tmp/mplconfig python scripts/update_netcdf_tide_type.py
 MPLCONFIGDIR=/tmp/mplconfig python scripts/update_netcdf_tide_type.py --write
@@ -139,16 +219,6 @@ MPLCONFIGDIR=/tmp/mplconfig python scripts/update_netcdf_tide_type.py --write
 The first command is a dry-run. The `--write` form fetches observed hourly data
 from ERDDAP and updates only the existing `tide_type` variable in matching
 NetCDF files; it does not rerun harmonics, predictions, or plots.
-
-### FD example
-```bash
-python tidal_batch.py --mode fd --station-id 001 --station-kind FD --output-dir outputs
-```
-
-### RQ example
-```bash
-python tidal_batch.py --mode rq --station-id 002 --station-kind RQ --version A --output-dir outputs
-```
 
 ## Important Notes for the Handoff Repo
 - The current code relies on direct ERDDAP access to:
@@ -166,7 +236,7 @@ python tidal_batch.py --mode rq --station-id 002 --station-kind RQ --version A -
 - If the receiving environment has stricter memory limits, full-record runs may need chunking immediately.
 - The legacy Matlab instructions use UTide with epoch-wide solves, nodal corrections enabled, annual constituents enabled, and trend removed only at prediction time. The Python implementation now follows that same pattern.
 - To reduce long-epoch memory and CPU pressure, the harmonic solve now follows the legacy Matlab `opt = 'nostats'` approach rather than computing UTide confidence intervals.
-- FD hourly predictions are capped at `2035-12-31 23:00`, and FD minute predictions are reduced to saved daily high/low event times and heights over `2025-01-01 00:00` through `2030-12-31 23:59`.
+- FD and most-recent RQ records save hourly predictions from record start through `2100-12-31 23:00` and minute high/low predictions over the runtime policy window. Older RQ versions save only hourly predictions over record start through record end.
 - For Python `utide`, pass datetime arrays directly into `solve()` and `reconstruct()`. Passing Matplotlib day numbers without an explicit epoch can yield empty constituent sets and invalid sampling diagnostics.
 - Tide type is classified from observed hourly sea level using NOAA categories: `Diurnal`, `Semidiurnal`, or `Mixed Semidiurnal`. The classifier counts local high/low waters in valid 24h50m tidal-day windows and separates semidiurnal from mixed semidiurnal using within-window high/low inequality.
 
