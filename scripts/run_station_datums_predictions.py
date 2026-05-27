@@ -52,8 +52,34 @@ def _resolve_station_ids(value: str) -> list[str]:
     return [str(int(part.strip())).zfill(3) for part in value.split(",") if part.strip()]
 
 
+def _compute_residual_metrics(merged: pd.DataFrame) -> dict:
+    residual = (
+        pd.to_numeric(merged["sea_level"], errors="coerce")
+        - pd.to_numeric(merged["prediction_mm"], errors="coerce")
+    )
+    residual = residual[np.isfinite(residual)]
+
+    if residual.empty:
+        return {
+            "residual_rows": 0,
+            "epoch_rmse_mm": None,
+            "epoch_residual_mean_mm": None,
+            "epoch_residual_std_mm": None,
+            "epoch_residual_abs_p95_mm": None,
+        }
+
+    return {
+        "residual_rows": int(len(residual)),
+        "epoch_rmse_mm": float(np.sqrt(np.mean(np.square(residual)))),
+        "epoch_residual_mean_mm": float(np.mean(residual)),
+        "epoch_residual_std_mm": float(np.std(residual)),
+        "epoch_residual_abs_p95_mm": float(np.nanpercentile(np.abs(residual), 95)),
+    }
+
+
 def _plot_hourly_comparison(plot_path: Path, merged: pd.DataFrame, title: str) -> dict:
     plot_df = merged.head(24 * 31).copy()
+
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(plot_df["time"], plot_df["sea_level"], label="Observed", linewidth=1.0)
     ax.plot(plot_df["time"], plot_df["prediction_mm"], label="Predicted", linewidth=1.0)
@@ -65,11 +91,13 @@ def _plot_hourly_comparison(plot_path: Path, merged: pd.DataFrame, title: str) -
     fig.tight_layout()
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
+
     residual = plot_df["sea_level"] - plot_df["prediction_mm"]
+
     return {
         "comparison_plot": str(plot_path),
-        "comparison_rows": int(len(plot_df)),
-        "rmse_mm": float(np.sqrt(np.mean(np.square(residual)))),
+        "plot_window_rows": int(len(plot_df)),
+        "plot_window_rmse_mm": float(np.sqrt(np.mean(np.square(residual)))) if len(plot_df) else None,
     }
 
 
@@ -112,10 +140,11 @@ def _plot_datums(plot_path: Path, series: pd.DataFrame, datum, switch_levels, ti
 
 
 def _plot_residuals(plot_path: Path, merged: pd.DataFrame, title: str) -> str:
-    plot_df = merged.head(24 * 31).copy()
+    plot_df = merged.copy()
     residual = plot_df["sea_level"] - plot_df["prediction_mm"]
+
     fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(plot_df["time"], residual, color="black", linewidth=0.9)
+    ax.plot(plot_df["time"], residual, color="black", linewidth=0.6)
     ax.axhline(0.0, color="tab:red", linestyle="--", linewidth=1.0)
     ax.set_title(title)
     ax.set_ylabel("Observed - Predicted (mm)")
@@ -124,6 +153,7 @@ def _plot_residuals(plot_path: Path, merged: pd.DataFrame, title: str) -> str:
     fig.tight_layout()
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
+
     return str(plot_path)
 
 
@@ -230,6 +260,7 @@ def _run_record(
         )
         within_epoch_pred = epoch_hourly_pred.copy()
         merged = observed.merge(within_epoch_pred, on="time", how="inner")
+        residual_meta = _compute_residual_metrics(merged)
         compare_meta = _plot_hourly_comparison(
             plot_dir / f"{ep.name}_hourly_observed_vs_predicted.png",
             merged,
@@ -240,9 +271,12 @@ def _run_record(
             merged,
             f"{record_id} {ep.name}: hourly residuals",
         )
+        epoch_rmse = residual_meta["epoch_rmse_mm"]
+        epoch_rmse_text = "nan" if epoch_rmse is None else f"{epoch_rmse:.2f}"
         log(
             f"{record_id} {ep.name}: saved harmonic artifact and plots; "
-            f"constituents={len(harmonics.constituent)}, rmse={compare_meta['rmse_mm']:.2f} mm"
+            f"constituents={len(harmonics.constituent)}, "
+            f"epoch_rmse={epoch_rmse_text} mm"
         )
 
         minute_plot = None
@@ -264,14 +298,19 @@ def _run_record(
                 "hourly_prediction_rows": 0,
                 "hourly_observed_rows": int(len(observed)),
                 "hourly_overlap_rows": int(len(merged)),
+                "epoch_residual_rows": residual_meta["residual_rows"],
                 "plots": {
                     "datums": datum_plot,
                     "hourly_observed_vs_predicted": compare_meta["comparison_plot"],
                     "hourly_residuals": residual_plot,
                     "fd_high_low": minute_plot,
                 },
-                "comparison_window_rows": compare_meta["comparison_rows"],
-                "comparison_window_rmse_mm": compare_meta["rmse_mm"],
+                "plot_window_rows": compare_meta["plot_window_rows"],
+                "plot_window_rmse_mm": compare_meta["plot_window_rmse_mm"],
+                "epoch_rmse_mm": residual_meta["epoch_rmse_mm"],
+                "epoch_residual_mean_mm": residual_meta["epoch_residual_mean_mm"],
+                "epoch_residual_std_mm": residual_meta["epoch_residual_std_mm"],
+                "epoch_residual_abs_p95_mm": residual_meta["epoch_residual_abs_p95_mm"],
                 "fd_high_low_rows": minute_rows,
                 "switch_levels": None if switch_levels is None else asdict(switch_levels),
             }
@@ -397,10 +436,14 @@ def _run_station(station_id: str) -> None:
         md_lines.append(f"- Update cycle: {record['update_cycle_months']} months ({record['update_cycle_reason']})")
         md_lines.append("- Saved epochs/datums/harmonics:")
         for epoch in record["epochs"]:
+            epoch_rmse = epoch["epoch_rmse_mm"]
+            epoch_rmse_text = "nan" if epoch_rmse is None else f"{epoch_rmse:.2f}"
+
             md_lines.append(
                 f"- {epoch['epoch']['name']}: constituents={epoch['harmonic_constituent_count']}, "
                 f"hourly_overlap_rows={epoch['hourly_overlap_rows']}, "
-                f"rmse_mm={epoch['comparison_window_rmse_mm']:.2f}"
+                f"full_epoch_rmse_mm={epoch_rmse_text}, "
+                f"plot_window_rows={epoch['plot_window_rows']}"
             )
         md_lines.append("")
     (output_root / "summary.md").write_text("\n".join(md_lines))
