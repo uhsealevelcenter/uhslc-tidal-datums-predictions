@@ -62,7 +62,7 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 - Real FD prototype outputs were successfully generated earlier for stations `001`, `002`, `003`, and `007` using shorter operational windows.
 - Full RQ ERDDAP spans were confirmed for station `002` versions `A`, `B`, `C`, `D`.
 - Live loader integration tests now pass for station `007` FD and RQ versions `A` and `B`.
-- Saved predictions are now record-level products based on the primary prediction epoch.
+- Saved predictions are record-level products based on prediction_basis_epoch by default. If PREDICTION_POLICY.save_predictions_for_all_epochs is set to True in tidal_config.py, the workflow writes one saved prediction product for every selected epoch while still marking prediction_basis_epoch as the default/recommended prediction basis.
 - Station diagnostic runners now accept `--station-id` and write to `artifacts/datums_predictions/station###/` and `artifacts/datums_only/station###/`.
 
 ### Known limitations
@@ -86,7 +86,7 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 - `PRED_*` epochs are tagged with `epoch_source = prediction` and `epoch_role = harmonic_prediction`; they preserve standard datum comparability while allowing a better-conditioned harmonic fit for prediction.
 - `RECENT_*` is a dynamic standard epoch selected after the fixed epochs and any `PREDICTION (abbreviated PRED)` epoch when the record has at least 3 months of sufficiently complete recent data, up to a 19-year span.
 - A station record can have up to five selected epochs: three fixed epochs, one `PRED_*` epoch, and one `RECENT_*` epoch.
-- All selected epochs calculate in-epoch predictions for datum calculations, but only the primary prediction epoch is used for saved prediction products.
+- All selected epochs calculate in-epoch predictions for datum calculations. By default, only prediction_basis_epoch is used for saved prediction products. If save_predictions_for_all_epochs is enabled, saved hourly predictions are written for every selected epoch.
 - Saved prediction basis is `PRED_*` when present, otherwise the first selected fixed epoch in the configured hierarchy, otherwise `RECENT_*`.
 - Update cadence is 5 years by default, or 3 months when the longest selected epoch is shorter than 5 years and the record ends in 2025 or later.
 

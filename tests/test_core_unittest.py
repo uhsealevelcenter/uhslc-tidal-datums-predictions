@@ -9,7 +9,11 @@ import xarray as xr
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, build_prediction_save_plan, cap_prediction_end, clean_hourly_dataframe, compute_datums, determine_update_cycle, fetch_station_metadata_index, fit_harmonics, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, predict_minute_high_low, extract_daily_high_low, extract_daily_high_low_chunked, save_harmonic_result, save_netcdf, select_epochs, select_primary_prediction_epoch, select_recent_epoch, strip_harmonic_result
+from dataclasses import replace
+
+from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, build_prediction_save_plan, cap_prediction_end, clean_hourly_dataframe, compute_datums, determine_update_cycle, fetch_station_metadata_index, fit_harmonics, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, predict_minute_high_low, extract_daily_high_low, extract_daily_high_low_chunked, saved_prediction_epoch_items, save_harmonic_result, save_netcdf, select_epochs, select_primary_prediction_epoch, select_recent_epoch, strip_harmonic_result
+
+from tidal_config import PREDICTION_POLICY
 
 
 class TestTidalCore(unittest.TestCase):
@@ -262,6 +266,48 @@ class TestTidalCore(unittest.TestCase):
         self.assertEqual(plan.prediction_scope, 'record_span')
         self.assertFalse(plan.save_minute_high_low)
 
+    def test_saved_prediction_epoch_items_default_basis_only(self):
+        df = self.synthetic_hourly(
+            start="2002-01-01 00:00:00",
+            end="2020-12-31 23:00:00",
+        )
+        epochs = select_epochs(df)
+        plan = build_prediction_save_plan(
+            df,
+            epochs,
+            "FD",
+            station_id="007",
+            runtime=pd.Timestamp("2026-05-01"),
+        )
+
+        items = saved_prediction_epoch_items(epochs, plan)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0][0], "primary")
+        self.assertEqual(items[0][1].name, plan.basis_epoch)
+
+
+    def test_saved_prediction_epoch_items_all_epochs_flag(self):
+        df = self.synthetic_hourly(
+            start="2002-01-01 00:00:00",
+            end="2020-12-31 23:00:00",
+        )
+        epochs = select_epochs(df)
+        plan = build_prediction_save_plan(
+            df,
+            epochs,
+            "FD",
+            station_id="007",
+            runtime=pd.Timestamp("2026-05-01"),
+        )
+        policy = replace(PREDICTION_POLICY, save_predictions_for_all_epochs=True)
+
+        items = saved_prediction_epoch_items(epochs, plan, policy=policy)
+
+        self.assertEqual([ep.name for _key, ep in items], [ep.name for ep in epochs])
+        self.assertEqual(len({key for key, _ep in items}), len(items))
+        self.assertIn("NTDE_2002_2020", {key for key, _ep in items})
+
     def test_determine_update_cycle_short_recent_record(self):
         df = self.synthetic_hourly(start='2025-01-01 00:00:00', end='2025-04-15 23:00:00')
         epochs = select_epochs(df)
@@ -277,6 +323,7 @@ class TestTidalCore(unittest.TestCase):
         pred = predict_from_harmonics(hr, ep.start, ep.end)
         dat = compute_datums(df, epoch_prediction=pred)
         switch_levels = SwitchLevel(station_id='001', LEV=1644.0, LEVB=1541.0, Date='2023-07-04 08:30:00')
+        pred.attrs["epoch_name"] = ep.name
         ds = build_netcdf_dataset('001', 'Test Station', 'RQ', epochs, {ep.name: dat}, {ep.name: hr}, {ep.name: pred}, switch_levels=switch_levels)
         self.assertIn('LEV', ds.variables)
         self.assertIn('epoch_role', ds.variables)
@@ -289,6 +336,8 @@ class TestTidalCore(unittest.TestCase):
         self.assertIn('githubusercontent.com', ds.attrs['skill_remote_url'])
         self.assertNotIn('skill_sha256', ds.attrs)
         self.assertEqual(float(ds['LEV'].isel(epoch=0).item()), 1644.0)
+        self.assertIn(f"hourly_prediction_{ep.name}", ds.variables)
+        self.assertEqual(ds[f"hourly_prediction_{ep.name}"].attrs["epoch_name"], ep.name)
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / 'test.nc'
             save_netcdf(ds, str(path))

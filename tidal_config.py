@@ -44,10 +44,25 @@ class EpochPolicy:
 
 @dataclass(frozen=True)
 class PredictionPolicy:
-    """Rules for saved prediction products made from the primary epoch."""
+    """Rules for saved prediction products.
+
+    By default, only the selected prediction_basis_epoch is saved as the
+    record-level prediction product. Set save_predictions_for_all_epochs=True
+    to save one prediction series for every selected epoch while still marking
+    prediction_basis_epoch as the default/recommended basis.
+    """
+
+    # When False, saved products match the current behavior: only the selected
+    # prediction_basis_epoch is written as hourly_prediction_primary.
+    #
+    # When True, saved hourly predictions are written for every selected epoch.
+    # When minute high/low predictions are active for a record, they are also
+    # written for every selected epoch.
+    save_predictions_for_all_epochs: bool = False
 
     # FD and most-recent RQ versions save hourly predictions into the future.
     long_hourly_end: pd.Timestamp = pd.Timestamp("2100-12-31 23:00:00")
+
     # Minute high/low predictions use a moving operational window. For example,
     # runtime 2026 with -1/+4 offsets gives 2025-01-01 through 2030-12-31.
     minute_runtime_start_offset_years: int = -1
@@ -62,11 +77,13 @@ class PredictionPolicy:
 # 3. RECENT is then tested as a dynamic standard epoch based on the latest
 #    qualifying data span, up to 19 years.
 #
-# Saved predictions use one primary prediction epoch: PRED_* first when it
-# exists, otherwise the first selected fixed epoch in this list, otherwise
-# RECENT. Non-primary epochs still calculate in-epoch predictions for HAT/LAT,
-# but those prediction series are not saved. Since RECENT is also selected when
-# it qualifies, a record can have up to five selected epochs.
+# prediction_basis_epoch is selected as PRED_* first when it exists, otherwise
+# the first selected fixed epoch in this list, otherwise RECENT. By default,
+# only prediction_basis_epoch is saved as the record-level prediction product.
+# Set PREDICTION_POLICY.save_predictions_for_all_epochs=True below to save
+# epoch-specific prediction products for every selected epoch while preserving
+# prediction_basis_epoch as the default/recommended basis. Since RECENT is also
+# selected when it qualifies, a record can have up to five selected epochs.
 EPOCH_POLICY = EpochPolicy(
     fixed_epochs=(
         FixedEpochSpec(
@@ -87,7 +104,13 @@ EPOCH_POLICY = EpochPolicy(
     )
 )
 
+# Default behavior - save predictions only for the prediction_basis_epoch. 
 PREDICTION_POLICY = PredictionPolicy()
+
+# Optional - save predictions for all epochs.
+# PREDICTION_POLICY = PredictionPolicy(
+#     save_predictions_for_all_epochs=True,
+# )
 
 
 def minute_prediction_window(
