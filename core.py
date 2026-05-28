@@ -28,7 +28,7 @@ warnings.filterwarnings(
 )
 from utide import solve, reconstruct
 
-from tidal_config import EPOCH_POLICY, PREDICTION_POLICY, minute_prediction_window
+from tidal_config import EPOCH_POLICY, PREDICTION_POLICY, PredictionPolicy, minute_prediction_window
 
 MISSING_VALUE = -32767
 ERDDAP_BASE = 'https://uhslc.soest.hawaii.edu/erddap/tabledap'
@@ -655,6 +655,65 @@ def build_prediction_save_plan(
     )
 
 
+def prediction_output_key(epoch_name: str) -> str:
+    """Return a NetCDF-safe key for epoch-specific prediction variables."""
+    key = re.sub(r"[^0-9A-Za-z_]+", "_", str(epoch_name)).strip("_")
+    return key or "epoch"
+
+
+def saved_prediction_epoch_items(
+    epochs: List[Epoch],
+    prediction_plan: PredictionSavePlan,
+    policy: PredictionPolicy | None = None,
+) -> list[tuple[str, Epoch]]:
+    """Return (output_key, epoch) pairs for saved prediction products.
+
+    Default behavior returns only the prediction basis epoch under the stable
+    key ``primary`` so existing NetCDF variables and downstream consumers keep
+    working. When ``policy.save_predictions_for_all_epochs`` is true, one
+    epoch-specific key is returned for every selected epoch.
+    """
+    active_policy = PREDICTION_POLICY if policy is None else policy
+
+    if active_policy.save_predictions_for_all_epochs:
+        items = [(prediction_output_key(ep.name), ep) for ep in epochs]
+        keys = [key for key, _ep in items]
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"Prediction output keys are not unique: {keys}")
+        return items
+
+    by_name = {ep.name: ep for ep in epochs}
+    try:
+        return [("primary", by_name[prediction_plan.basis_epoch])]
+    except KeyError as exc:
+        raise ValueError(
+            f"Prediction basis epoch not in selected epochs: {prediction_plan.basis_epoch}"
+        ) from exc
+
+
+def saved_minute_highlow_epoch_items(
+    epochs: List[Epoch],
+    prediction_plan: PredictionSavePlan,
+    policy: PredictionPolicy | None = None,
+) -> list[tuple[str, Epoch]]:
+    """Return (output_key, epoch) pairs for saved minute high/low products."""
+    if not prediction_plan.save_minute_high_low:
+        return []
+
+    active_policy = PREDICTION_POLICY if policy is None else policy
+
+    if active_policy.save_predictions_for_all_epochs:
+        return saved_prediction_epoch_items(epochs, prediction_plan, policy=active_policy)
+
+    by_name = {ep.name: ep for ep in epochs}
+    try:
+        return [("primary", by_name[prediction_plan.basis_epoch])]
+    except KeyError as exc:
+        raise ValueError(
+            f"Prediction basis epoch not in selected epochs: {prediction_plan.basis_epoch}"
+        ) from exc
+
+
 def _tidal_day_windows(times: pd.Series, values: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     t0 = times.iloc[0]
     t1 = times.iloc[-1]
@@ -1118,9 +1177,45 @@ def build_netcdf_dataset(
         ds.attrs['update_cycle_reason'] = prediction_plan.update_cycle_reason
 
     prediction_items = list(hourly_predictions.items())
-    for e, pred in prediction_items:
+    saved_prediction_epochs = []
+
+    for key, pred in prediction_items:
         if pred is not None and not pred.empty:
-            ds[f'hourly_prediction_{e}'] = xr.DataArray(_round_mm_array(pred['prediction_mm'].to_numpy(dtype=float)), dims=[f'time_{e}'], coords={f'time_{e}': pred['time'].to_numpy(dtype='datetime64[ns]')})
+            epoch_name = pred.attrs.get("epoch_name") or (
+                prediction_plan.basis_epoch
+                if key == "primary" and prediction_plan is not None
+                else key
+            )
+            saved_prediction_epochs.append(str(epoch_name))
+
+            var_name = f"hourly_prediction_{key}"
+            time_name = f"time_{key}"
+
+            ds[var_name] = xr.DataArray(
+                _round_mm_array(pred["prediction_mm"].to_numpy(dtype=float)),
+                dims=[time_name],
+                coords={time_name: pred["time"].to_numpy(dtype="datetime64[ns]")},
+            )
+            ds[var_name].attrs["epoch_name"] = str(epoch_name)
+            ds[var_name].attrs["prediction_key"] = str(key)
+
+            if prediction_plan is not None:
+                ds[var_name].attrs["is_prediction_basis"] = str(
+                    epoch_name == prediction_plan.basis_epoch
+                ).lower()
+
+    if prediction_plan is not None:
+        saved_prediction_keys = [
+            str(key)
+            for key, pred in prediction_items
+            if pred is not None and not pred.empty
+        ]
+
+        ds.attrs["prediction_output_mode"] = (
+            "basis_only" if saved_prediction_keys == ["primary"] else "all_epochs"
+        )
+        ds.attrs["saved_hourly_prediction_keys"] = ",".join(saved_prediction_keys)
+        ds.attrs["saved_hourly_prediction_epochs"] = ",".join(saved_prediction_epochs)
 
     ds = _attach_switch_levels(ds, epochs, switch_levels)
     return _attach_skill(ds)

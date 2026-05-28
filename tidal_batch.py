@@ -10,7 +10,7 @@ import numpy as np
 from core import (
     build_prediction_save_plan, clean_hourly_dataframe, select_epochs, compute_datums,
     fit_harmonics, load_harmonic_result, predict_from_harmonics,
-    predict_minute_high_low,
+    predict_minute_high_low, saved_minute_highlow_epoch_items, saved_prediction_epoch_items,
     build_datums_only_dataset, build_netcdf_dataset, save_harmonic_result,
     save_netcdf, strip_harmonic_result, fetch_fd_hourly, fetch_rq_hourly,
     get_station_metadata, get_station_switch_levels,
@@ -77,21 +77,27 @@ def process_df(df, station_id, station_name, station_kind, latitude, output_dir,
         gc.collect()
 
     if not datums_only and prediction_plan is not None:
-        basis_harmonics = load_harmonic_result(harmonic_artifacts[prediction_plan.basis_epoch]['pickle'])
-        hourly_predictions['primary'] = predict_from_harmonics(
-            basis_harmonics,
-            prediction_plan.hourly_start,
-            prediction_plan.hourly_end,
-            freq='1h',
-        )
-        if prediction_plan.save_minute_high_low:
-            minute_highlow_by_epoch['primary'] = predict_minute_high_low(
-                basis_harmonics,
+        for prediction_key, ep in saved_prediction_epoch_items(epochs, prediction_plan):
+            harmonics = load_harmonic_result(harmonic_artifacts[ep.name]['pickle'])
+            hourly_predictions[prediction_key] = predict_from_harmonics(
+                harmonics,
+                prediction_plan.hourly_start,
+                prediction_plan.hourly_end,
+                freq='1h',
+            )
+            hourly_predictions[prediction_key].attrs['epoch_name'] = ep.name
+            del harmonics
+            gc.collect()
+
+        for prediction_key, ep in saved_minute_highlow_epoch_items(epochs, prediction_plan):
+            harmonics = load_harmonic_result(harmonic_artifacts[ep.name]['pickle'])
+            minute_highlow_by_epoch[prediction_key] = predict_minute_high_low(
+                harmonics,
                 start=prediction_plan.minute_start,
                 end=prediction_plan.minute_end,
             )
-        del basis_harmonics
-        gc.collect()
+            del harmonics
+            gc.collect()
 
     if datums_only:
         ds = build_datums_only_dataset(station_id, station_name, station_kind, epochs, datum_by_epoch, switch_levels=switch_levels)

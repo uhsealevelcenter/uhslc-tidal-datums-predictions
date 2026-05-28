@@ -27,6 +27,8 @@ from core import (
     load_harmonic_result,
     predict_minute_high_low,
     predict_from_harmonics,
+    saved_minute_highlow_epoch_items,
+    saved_prediction_epoch_items,
     save_harmonic_result,
     save_netcdf,
     select_epochs,
@@ -210,7 +212,10 @@ def _run_record(
     hourly_predictions = {}
     harmonic_artifacts = {}
     minute_highlow_by_epoch = {}
+    hourly_prediction_summaries = []
+    minute_highlow_prediction_summaries = []
     epoch_summaries = []
+    epoch_summary_by_name = {}
     prediction_plan = build_prediction_save_plan(df, epochs, station_kind, station_id=station_id, version=version)
     log(
         f"{record_id}: prediction basis {prediction_plan.basis_epoch}; "
@@ -288,53 +293,133 @@ def _run_record(
                 f"{record_id} {ep.name}: FD high/low minute prediction",
             )
 
-        epoch_summaries.append(
-            {
-                "epoch": asdict(ep),
-                "datum": asdict(datum),
-                "harmonic_constituent_count": int(len(harmonics.constituent)),
-                "top_constituents": harmonics.constituent[:12],
-                "harmonic_artifact": harmonic_artifacts[ep.name],
-                "hourly_prediction_rows": 0,
-                "hourly_observed_rows": int(len(observed)),
-                "hourly_overlap_rows": int(len(merged)),
-                "epoch_residual_rows": residual_meta["residual_rows"],
-                "plots": {
-                    "datums": datum_plot,
-                    "hourly_observed_vs_predicted": compare_meta["comparison_plot"],
-                    "hourly_residuals": residual_plot,
-                    "fd_high_low": minute_plot,
-                },
-                "plot_window_rows": compare_meta["plot_window_rows"],
-                "plot_window_rmse_mm": compare_meta["plot_window_rmse_mm"],
-                "epoch_rmse_mm": residual_meta["epoch_rmse_mm"],
-                "epoch_residual_mean_mm": residual_meta["epoch_residual_mean_mm"],
-                "epoch_residual_std_mm": residual_meta["epoch_residual_std_mm"],
-                "epoch_residual_abs_p95_mm": residual_meta["epoch_residual_abs_p95_mm"],
-                "fd_high_low_rows": minute_rows,
-                "switch_levels": None if switch_levels is None else asdict(switch_levels),
-            }
-        )
+        epoch_summary = {
+            "epoch": asdict(ep),
+            "datum": asdict(datum),
+            "harmonic_constituent_count": int(len(harmonics.constituent)),
+            "top_constituents": harmonics.constituent[:12],
+            "harmonic_artifact": harmonic_artifacts[ep.name],
+
+            "hourly_prediction_rows": 0,
+            "hourly_prediction_variable": None,
+            "hourly_prediction_start": None,
+            "hourly_prediction_end": None,
+            "is_prediction_basis": ep.name == prediction_plan.basis_epoch,
+
+            "hourly_observed_rows": int(len(observed)),
+            "hourly_overlap_rows": int(len(merged)),
+            "epoch_residual_rows": residual_meta["residual_rows"],
+
+            "plots": {
+                "datums": datum_plot,
+                "hourly_observed_vs_predicted": compare_meta["comparison_plot"],
+                "hourly_residuals": residual_plot,
+                "fd_high_low": minute_plot,
+            },
+
+            "plot_window_rows": compare_meta["plot_window_rows"],
+            "plot_window_rmse_mm": compare_meta["plot_window_rmse_mm"],
+            "epoch_rmse_mm": residual_meta["epoch_rmse_mm"],
+            "epoch_residual_mean_mm": residual_meta["epoch_residual_mean_mm"],
+            "epoch_residual_std_mm": residual_meta["epoch_residual_std_mm"],
+            "epoch_residual_abs_p95_mm": residual_meta["epoch_residual_abs_p95_mm"],
+
+            "fd_high_low_rows": minute_rows,
+            "minute_highlow_prediction_rows": 0,
+            "minute_highlow_time_variable": None,
+            "minute_highlow_height_variable": None,
+            "minute_highlow_type_variable": None,
+
+            "switch_levels": None if switch_levels is None else asdict(switch_levels),
+        }
+
+        epoch_summary_by_name[ep.name] = epoch_summary
+        epoch_summaries.append(epoch_summary)
         del harmonics, sub, epoch_hourly_pred, minute_highlow
         gc.collect()
 
-    basis_harmonics = load_harmonic_result(harmonic_artifacts[prediction_plan.basis_epoch]["pickle"])
-    log(f"{record_id}: generating saved hourly prediction")
-    hourly_predictions["primary"] = predict_from_harmonics(
-        basis_harmonics,
-        prediction_plan.hourly_start,
-        prediction_plan.hourly_end,
-        freq="1h",
-    )
-    if prediction_plan.save_minute_high_low:
-        log(f"{record_id}: generating saved minute high/low prediction")
-        minute_highlow_by_epoch["primary"] = predict_minute_high_low(
-            basis_harmonics,
+    prediction_items = saved_prediction_epoch_items(epochs, prediction_plan)
+
+    log(f"{record_id}: generating saved hourly predictions for {len(prediction_items)} epoch(s)")
+
+    for prediction_key, ep in prediction_items:
+        harmonics = load_harmonic_result(harmonic_artifacts[ep.name]["pickle"])
+
+        log(f"{record_id} {ep.name}: generating saved hourly prediction as {prediction_key}")
+
+        hourly_predictions[prediction_key] = predict_from_harmonics(
+            harmonics,
+            prediction_plan.hourly_start,
+            prediction_plan.hourly_end,
+            freq="1h",
+        )
+        hourly_predictions[prediction_key].attrs["epoch_name"] = ep.name
+
+        hourly_rows = int(len(hourly_predictions[prediction_key]))
+        hourly_variable = f"hourly_prediction_{prediction_key}"
+
+        hourly_prediction_summary = {
+            "saved": True,
+            "epoch": ep.name,
+            "prediction_key": prediction_key,
+            "is_prediction_basis": ep.name == prediction_plan.basis_epoch,
+            "variable": hourly_variable,
+            "start": prediction_plan.hourly_start,
+            "end": prediction_plan.hourly_end,
+            "rows": hourly_rows,
+        }
+        hourly_prediction_summaries.append(hourly_prediction_summary)
+
+        if ep.name in epoch_summary_by_name:
+            epoch_summary_by_name[ep.name]["hourly_prediction_rows"] = hourly_rows
+            epoch_summary_by_name[ep.name]["hourly_prediction_variable"] = hourly_variable
+            epoch_summary_by_name[ep.name]["hourly_prediction_start"] = prediction_plan.hourly_start
+            epoch_summary_by_name[ep.name]["hourly_prediction_end"] = prediction_plan.hourly_end
+
+        del harmonics
+        gc.collect()
+
+
+    minute_items = saved_minute_highlow_epoch_items(epochs, prediction_plan)
+
+    if minute_items:
+        log(f"{record_id}: generating saved minute high/low predictions for {len(minute_items)} epoch(s)")
+
+    for prediction_key, ep in minute_items:
+        harmonics = load_harmonic_result(harmonic_artifacts[ep.name]["pickle"])
+
+        log(f"{record_id} {ep.name}: generating saved minute high/low prediction as {prediction_key}")
+
+        minute_highlow_by_epoch[prediction_key] = predict_minute_high_low(
+            harmonics,
             start=prediction_plan.minute_start,
             end=prediction_plan.minute_end,
         )
-    del basis_harmonics
-    gc.collect()
+
+        minute_rows = int(len(minute_highlow_by_epoch[prediction_key]))
+
+        minute_summary = {
+            "saved": True,
+            "epoch": ep.name,
+            "prediction_key": prediction_key,
+            "is_prediction_basis": ep.name == prediction_plan.basis_epoch,
+            "time_variable": f"minute_highlow_time_{prediction_key}",
+            "height_variable": f"minute_highlow_height_mm_{prediction_key}",
+            "type_variable": f"minute_highlow_type_{prediction_key}",
+            "start": prediction_plan.minute_start,
+            "end": prediction_plan.minute_end,
+            "rows": minute_rows,
+        }
+        minute_highlow_prediction_summaries.append(minute_summary)
+
+        if ep.name in epoch_summary_by_name:
+            epoch_summary_by_name[ep.name]["minute_highlow_prediction_rows"] = minute_rows
+            epoch_summary_by_name[ep.name]["minute_highlow_time_variable"] = minute_summary["time_variable"]
+            epoch_summary_by_name[ep.name]["minute_highlow_height_variable"] = minute_summary["height_variable"]
+            epoch_summary_by_name[ep.name]["minute_highlow_type_variable"] = minute_summary["type_variable"]
+
+        del harmonics
+        gc.collect()
 
     ds = build_netcdf_dataset(
         record_id,
@@ -366,22 +451,28 @@ def _run_record(
         "harmonic_artifacts": harmonic_artifacts,
         "prediction_basis_epoch": prediction_plan.basis_epoch,
         "prediction_scope": prediction_plan.prediction_scope,
-        "hourly_prediction": {
-            "saved": True,
-            "variable": "hourly_prediction_primary",
-            "start": prediction_plan.hourly_start,
-            "end": prediction_plan.hourly_end,
-            "rows": int(len(hourly_predictions.get("primary", []))),
-        },
-        "minute_highlow_prediction": {
-            "saved": bool(prediction_plan.save_minute_high_low),
-            "time_variable": "minute_highlow_time_primary" if prediction_plan.save_minute_high_low else None,
-            "height_variable": "minute_highlow_height_mm_primary" if prediction_plan.save_minute_high_low else None,
-            "type_variable": "minute_highlow_type_primary" if prediction_plan.save_minute_high_low else None,
-            "start": prediction_plan.minute_start if prediction_plan.save_minute_high_low else None,
-            "end": prediction_plan.minute_end if prediction_plan.save_minute_high_low else None,
-            "rows": int(len(minute_highlow_by_epoch.get("primary", []))) if prediction_plan.save_minute_high_low else 0,
-        },
+        "hourly_prediction": next(
+            item for item in hourly_prediction_summaries if item["is_prediction_basis"]
+        ),
+        "hourly_predictions": hourly_prediction_summaries,
+
+        "minute_highlow_prediction": (
+            next(
+                item for item in minute_highlow_prediction_summaries
+                if item["is_prediction_basis"]
+            )
+            if minute_highlow_prediction_summaries
+            else {
+                "saved": False,
+                "time_variable": None,
+                "height_variable": None,
+                "type_variable": None,
+                "start": None,
+                "end": None,
+                "rows": 0,
+            }
+        ),
+        "minute_highlow_predictions": minute_highlow_prediction_summaries,
         "update_cycle_months": prediction_plan.update_cycle_months,
         "update_cycle_reason": prediction_plan.update_cycle_reason,
         "epochs": epoch_summaries,
@@ -419,20 +510,52 @@ def _run_station(station_id: str) -> None:
         md_lines.append(f"- NetCDF: `{record['netcdf']}`")
         md_lines.append(f"- Prediction basis epoch: `{record['prediction_basis_epoch']}`")
         md_lines.append(f"- Prediction scope: `{record['prediction_scope']}`")
-        hourly = record["hourly_prediction"]
-        md_lines.append(
-            f"- Saved hourly prediction: `{hourly['variable']}` from "
-            f"`{hourly['start']}` to `{hourly['end']}` ({hourly['rows']} rows)"
-        )
-        minute = record["minute_highlow_prediction"]
-        if minute["saved"]:
+        hourly_predictions_summary = record.get("hourly_predictions") or [record["hourly_prediction"]]
+
+        if len(hourly_predictions_summary) == 1:
+            hourly = hourly_predictions_summary[0]
             md_lines.append(
-                "- Saved minute high/low prediction: "
-                f"`{minute['time_variable']}`, `{minute['height_variable']}`, `{minute['type_variable']}` "
-                f"from `{minute['start']}` to `{minute['end']}` ({minute['rows']} rows)"
+                f"- Saved hourly prediction: `{hourly['variable']}` from "
+                f"`{hourly['start']}` to `{hourly['end']}` ({hourly['rows']} rows)"
             )
         else:
-            md_lines.append("- Saved minute high/low prediction: none")
+            md_lines.append("- Saved hourly predictions:")
+            for hourly in hourly_predictions_summary:
+                basis_label = " [prediction basis]" if hourly.get("is_prediction_basis") else ""
+                md_lines.append(
+                    f"  - `{hourly['epoch']}`{basis_label}: `{hourly['variable']}` from "
+                    f"`{hourly['start']}` to `{hourly['end']}` ({hourly['rows']} rows)"
+                )
+
+        minute_predictions_summary = record.get("minute_highlow_predictions") or []
+
+        if minute_predictions_summary:
+            if len(minute_predictions_summary) == 1:
+                minute = minute_predictions_summary[0]
+                md_lines.append(
+                    "- Saved minute high/low prediction: "
+                    f"`{minute['time_variable']}`, `{minute['height_variable']}`, `{minute['type_variable']}` "
+                    f"from `{minute['start']}` to `{minute['end']}` ({minute['rows']} rows)"
+                )
+            else:
+                md_lines.append("- Saved minute high/low predictions:")
+                for minute in minute_predictions_summary:
+                    basis_label = " [prediction basis]" if minute.get("is_prediction_basis") else ""
+                    md_lines.append(
+                        f"  - `{minute['epoch']}`{basis_label}: "
+                        f"`{minute['time_variable']}`, `{minute['height_variable']}`, `{minute['type_variable']}` "
+                        f"from `{minute['start']}` to `{minute['end']}` ({minute['rows']} rows)"
+                    )
+        else:
+            minute = record.get("minute_highlow_prediction")
+            if minute and minute.get("saved"):
+                md_lines.append(
+                    "- Saved minute high/low prediction: "
+                    f"`{minute['time_variable']}`, `{minute['height_variable']}`, `{minute['type_variable']}` "
+                    f"from `{minute['start']}` to `{minute['end']}` ({minute['rows']} rows)"
+                )
+            else:
+                md_lines.append("- Saved minute high/low prediction: none")
         md_lines.append(f"- Update cycle: {record['update_cycle_months']} months ({record['update_cycle_reason']})")
         md_lines.append("- Saved epochs/datums/harmonics:")
         for epoch in record["epochs"]:
