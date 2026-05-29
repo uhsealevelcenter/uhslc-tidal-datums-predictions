@@ -69,6 +69,64 @@ class PredictionPolicy:
     minute_runtime_end_offset_years: int = 4
 
 
+@dataclass(frozen=True)
+class DatabasePolicy:
+    """Rules for optional database synchronization.
+
+    Default behavior is safe: database writes are disabled. When writes are
+    disabled, the processing script should still log what would be written.
+    """
+
+    write_epochs: bool = False
+    log_epoch_plan: bool = True
+
+    # Compare the database's station/version inventory with the ERDDAP records
+    # available to this run before any epoch rows are written.
+    reconcile_station_inventory: bool = True
+
+    # How to handle DB/ERDDAP inventory gaps discovered during reconciliation.
+    #
+    # "warn":
+    #   Continue with records that have both ERDDAP source observations and a
+    #   safe DB target. DB-only records are reported/skipped.
+    #
+    # "strict":
+    #   Raise before processing the station if any DB/ERDDAP gap exists.
+    reconciliation_mode: str = "warn"
+
+    # Fail epoch writes unless the target time_series row can be resolved from
+    # a deterministic rule.
+    #
+    # RQ records:
+    #   Must match exact id_from_source, e.g. 014a -> 000014A.
+    #
+    # FD/best_available records:
+    #   Use the DB utility resolver for the unversioned ERDDAP stream, e.g.
+    #   014 -> whichever DB row the database currently says represents that
+    #   published best_available stream.
+    require_exact_epoch_write_target: bool = True
+
+    # FD/unlettered records are best-available products.
+    fd_input_basis_code: str = "best_available"
+
+    # RQ/lettered records are research-quality products.
+    rq_input_basis_code: str = "research_quality"
+
+    # Optional direct path to the directory containing env_utils.py and
+    # timescale_utils.py. If set, this wins over all environment inference.
+    timescale_utils_dir: str | None = None
+
+    # Fallback environment if PROCESS_ENV is not exported.
+    process_env_default: str = "dev"
+
+    # Timescale process homes by environment. The utilities are expected under
+    # <process_home>/utils.
+    timescale_process_home_by_env: tuple[tuple[str, str], ...] = (
+        ("dev", "/home/nwstg/timescale"),
+        ("prod", "/home/uhslc/timescale/current"),
+    )
+
+
 # Selection hierarchy:
 # 1. Fixed standard epochs below are tested in the listed order.
 # 2. PREDICTION (abbreviated PRED) may add one PRED_YYYY_YYYY epoch when fixed
@@ -110,6 +168,15 @@ PREDICTION_POLICY = PredictionPolicy()
 # Optional - save predictions for all epochs.
 # PREDICTION_POLICY = PredictionPolicy(
 #     save_predictions_for_all_epochs=True,
+# )
+
+# Default behavior - do not write database products.
+DATABASE_POLICY = DatabasePolicy()
+
+# Optional - enable epoch writes to Timescale/Postgres.
+# DATABASE_POLICY = DatabasePolicy(
+#     write_epochs=True,
+#     reconciliation_mode="warn",
 # )
 
 
