@@ -15,22 +15,40 @@
           "pickle": "artifacts/datums_predictions/station002/harmonics/002/IPCC-AR6_1995-2014_harmonics.pkl",
           "json": "artifacts/datums_predictions/station002/harmonics/002/IPCC-AR6_1995-2014_harmonics.json"
         },
-        "RECENT_2007-03-31_2026-03-31": {
-          "pickle": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-03-31_2026-03-31_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-03-31_2026-03-31_harmonics.json"
+        "RECENT_2007-04-30_2026-04-30": {
+          "pickle": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
+          "json": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-04-30_2026-04-30_harmonics.json"
         }
       },
       "prediction_basis_epoch": "NTDE_2002-2020",
       "prediction_scope": "long_future",
       "hourly_prediction": {
         "saved": true,
+        "epoch": "NTDE_2002-2020",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "variable": "hourly_prediction_primary",
         "start": "1992-12-04 01:00:00",
         "end": "2100-12-31 23:00:00",
         "rows": 947375
       },
+      "hourly_predictions": [
+        {
+          "saved": true,
+          "epoch": "NTDE_2002-2020",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "variable": "hourly_prediction_primary",
+          "start": "1992-12-04 01:00:00",
+          "end": "2100-12-31 23:00:00",
+          "rows": 947375
+        }
+      ],
       "minute_highlow_prediction": {
         "saved": true,
+        "epoch": "NTDE_2002-2020",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "time_variable": "minute_highlow_time_primary",
         "height_variable": "minute_highlow_height_mm_primary",
         "type_variable": "minute_highlow_type_primary",
@@ -38,6 +56,20 @@
         "end": "2030-12-31 23:59:00",
         "rows": 8467
       },
+      "minute_highlow_predictions": [
+        {
+          "saved": true,
+          "epoch": "NTDE_2002-2020",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "time_variable": "minute_highlow_time_primary",
+          "height_variable": "minute_highlow_height_mm_primary",
+          "type_variable": "minute_highlow_type_primary",
+          "start": "2025-01-01 00:00:00",
+          "end": "2030-12-31 23:59:00",
+          "rows": 8467
+        }
+      ],
       "update_cycle_months": 60,
       "update_cycle_reason": "default",
       "epochs": [
@@ -65,8 +97,8 @@
             "MN": 1277.6480610257481,
             "DHQ": 102.59814559083452,
             "DLQ": 49.27395405080483,
-            "HAT": 2974.503665239202,
-            "LAT": 503.23306541376496,
+            "HAT": 2974.503665239198,
+            "LAT": 503.23306541376905,
             "p90_low": 1020.0,
             "p95_low": 890.0,
             "p99_low": 704.0,
@@ -75,6 +107,8 @@
             "p99_high": 2737.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1689.6442629335315,
+          "harmonic_slope_mm_per_day": 0.00795548074270206,
           "top_constituents": [
             "M2",
             "S2",
@@ -93,18 +127,31 @@
             "pickle": "artifacts/datums_predictions/station002/harmonics/002/NTDE_2002-2020_harmonics.pkl",
             "json": "artifacts/datums_predictions/station002/harmonics/002/NTDE_2002-2020_harmonics.json"
           },
-          "hourly_prediction_rows": 0,
+          "hourly_prediction_rows": 947375,
+          "hourly_prediction_variable": "hourly_prediction_primary",
+          "hourly_prediction_start": "1992-12-04 01:00:00",
+          "hourly_prediction_end": "2100-12-31 23:00:00",
+          "is_prediction_basis": true,
           "hourly_observed_rows": 160999,
           "hourly_overlap_rows": 160999,
+          "epoch_residual_rows": 160999,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002/NTDE_2002-2020_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002/NTDE_2002-2020_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002/NTDE_2002-2020_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 45.720409555232756,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 45.720409555232756,
+          "epoch_rmse_mm": 72.87309641498089,
+          "epoch_residual_mean_mm": 0.376134434065525,
+          "epoch_residual_std_mm": 72.8721256997119,
+          "epoch_residual_abs_p95_mm": 141.71673782768227,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 8467,
+          "minute_highlow_time_variable": "minute_highlow_time_primary",
+          "minute_highlow_height_variable": "minute_highlow_height_mm_primary",
+          "minute_highlow_type_variable": "minute_highlow_type_primary",
           "switch_levels": null
         },
         {
@@ -131,8 +178,8 @@
             "MN": 1279.0395057465307,
             "DHQ": 103.41479052610657,
             "DLQ": 48.5502418623355,
-            "HAT": 2939.587344439332,
-            "LAT": 473.0283920696238,
+            "HAT": 2939.587344439333,
+            "LAT": 473.0283920696206,
             "p90_low": 984.0,
             "p95_low": 852.0,
             "p99_low": 660.0,
@@ -141,6 +188,8 @@
             "p99_high": 2701.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1654.6757438406657,
+          "harmonic_slope_mm_per_day": 0.014168521574363758,
           "top_constituents": [
             "M2",
             "S2",
@@ -160,24 +209,37 @@
             "json": "artifacts/datums_predictions/station002/harmonics/002/IPCC-AR6_1995-2014_harmonics.json"
           },
           "hourly_prediction_rows": 0,
+          "hourly_prediction_variable": null,
+          "hourly_prediction_start": null,
+          "hourly_prediction_end": null,
+          "is_prediction_basis": false,
           "hourly_observed_rows": 169999,
           "hourly_overlap_rows": 169999,
+          "epoch_residual_rows": 169999,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002/IPCC-AR6_1995-2014_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002/IPCC-AR6_1995-2014_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 45.86446732374742,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 45.86446732374838,
+          "epoch_rmse_mm": 82.68277996395459,
+          "epoch_residual_mean_mm": -0.2010601159556845,
+          "epoch_residual_std_mm": 82.68253550416497,
+          "epoch_residual_abs_p95_mm": 174.94570205139243,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         },
         {
           "epoch": {
-            "name": "RECENT_2007-03-31_2026-03-31",
-            "start": "2007-03-31 23:00:00",
-            "end": "2026-03-31 23:00:00",
+            "name": "RECENT_2007-04-30_2026-04-30",
+            "start": "2007-04-30 23:00:00",
+            "end": "2026-04-30 23:00:00",
             "source": "recent",
             "completion_fraction": 0.9818444894062835,
             "n_expected": 166561,
@@ -186,27 +248,29 @@
           },
           "datum": {
             "tide_type": "Mixed Semidiurnal",
-            "MHHW": 2438.472251786529,
-            "MHW": 2329.641203007519,
-            "DTL": 1723.4752166641326,
-            "MTL": 1692.80854514026,
-            "MSL": 1696.883836685276,
-            "MLW": 1055.9758872730013,
-            "MLLW": 1008.4781815417364,
-            "GT": 1429.9940702447925,
-            "MN": 1273.6653157345177,
-            "DHQ": 108.83104877900996,
-            "DLQ": 47.49770573126489,
-            "HAT": 2973.205626665384,
-            "LAT": 511.5477137080011,
-            "p90_low": 1029.0,
-            "p95_low": 899.8000000000002,
-            "p99_low": 713.0,
-            "p90_high": 2370.0,
-            "p95_high": 2520.0,
-            "p99_high": 2741.0
+            "MHHW": 2439.4554575858924,
+            "MHW": 2330.61717164123,
+            "DTL": 1724.5482669504408,
+            "MTL": 1693.8279498953589,
+            "MSL": 1697.8758568397366,
+            "MLW": 1057.0387281494877,
+            "MLLW": 1009.6410763149894,
+            "GT": 1429.8143812709031,
+            "MN": 1273.5784434917423,
+            "DHQ": 108.8382859446624,
+            "DLQ": 47.39765183449833,
+            "HAT": 2974.481863017385,
+            "LAT": 513.6477835092358,
+            "p90_low": 1030.0,
+            "p95_low": 900.0,
+            "p99_low": 713.3600000000001,
+            "p90_high": 2371.0,
+            "p95_high": 2521.0,
+            "p99_high": 2742.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1697.4515031395035,
+          "harmonic_slope_mm_per_day": 0.011453291487830003,
           "top_constituents": [
             "M2",
             "S2",
@@ -216,30 +280,55 @@
             "O1",
             "P1",
             "NU2",
-            "SA",
             "MU2",
+            "SA",
             "T2",
             "2N2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-03-31_2026-03-31_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-03-31_2026-03-31_harmonics.json"
+            "pickle": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
+            "json": "artifacts/datums_predictions/station002/harmonics/002/RECENT_2007-04-30_2026-04-30_harmonics.json"
           },
           "hourly_prediction_rows": 0,
+          "hourly_prediction_variable": null,
+          "hourly_prediction_start": null,
+          "hourly_prediction_end": null,
+          "is_prediction_basis": false,
           "hourly_observed_rows": 163537,
           "hourly_overlap_rows": 163537,
+          "epoch_residual_rows": 163537,
           "plots": {
-            "datums": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-03-31_2026-03-31_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-03-31_2026-03-31_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-03-31_2026-03-31_hourly_residuals.png",
+            "datums": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-04-30_2026-04-30_datums.png",
+            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-04-30_2026-04-30_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "artifacts/datums_predictions/station002/plots/002/RECENT_2007-04-30_2026-04-30_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 55.94027590875719,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 50.888699928388455,
+          "epoch_rmse_mm": 74.16096123883652,
+          "epoch_residual_mean_mm": 0.3628101014494619,
+          "epoch_residual_std_mm": 74.16007376411177,
+          "epoch_residual_abs_p95_mm": 145.65405087761636,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         }
-      ]
+      ],
+      "database_sync": {
+        "record_id": "002",
+        "station_kind": "FD",
+        "source_record_id": "002",
+        "input_basis_code": "best_available",
+        "input_basis_id": 2,
+        "time_series_id": 180,
+        "id_from_source": "000002D",
+        "resolution_rule": "fd_unversioned_source_resolved_by_database",
+        "epoch_id_by_name": {},
+        "write_epochs": false
+      }
     },
     {
       "record_id": "002a",
@@ -256,11 +345,26 @@
       "prediction_scope": "record_span",
       "hourly_prediction": {
         "saved": true,
+        "epoch": "RECENT_1974-05-03_1983-12-31",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "variable": "hourly_prediction_primary",
         "start": "1974-05-03 05:00:00",
         "end": "1983-12-31 10:00:00",
         "rows": 84702
       },
+      "hourly_predictions": [
+        {
+          "saved": true,
+          "epoch": "RECENT_1974-05-03_1983-12-31",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "variable": "hourly_prediction_primary",
+          "start": "1974-05-03 05:00:00",
+          "end": "1983-12-31 10:00:00",
+          "rows": 84702
+        }
+      ],
       "minute_highlow_prediction": {
         "saved": false,
         "time_variable": null,
@@ -270,6 +374,7 @@
         "end": null,
         "rows": 0
       },
+      "minute_highlow_predictions": [],
       "update_cycle_months": 60,
       "update_cycle_reason": "default",
       "epochs": [
@@ -297,7 +402,7 @@
             "MN": 1247.0585078613635,
             "DHQ": 92.47515166651283,
             "DLQ": 40.11078491656809,
-            "HAT": 2400.067710690356,
+            "HAT": 2400.0677106903577,
             "LAT": 27.702337347724324,
             "p90_low": 527.0,
             "p95_low": 398.0,
@@ -307,6 +412,8 @@
             "p99_high": 2193.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1170.9965792510266,
+          "harmonic_slope_mm_per_day": -0.014466509155845016,
           "top_constituents": [
             "M2",
             "S2",
@@ -325,21 +432,46 @@
             "pickle": "artifacts/datums_predictions/station002/harmonics/002a/RECENT_1974-05-03_1983-12-31_harmonics.pkl",
             "json": "artifacts/datums_predictions/station002/harmonics/002a/RECENT_1974-05-03_1983-12-31_harmonics.json"
           },
-          "hourly_prediction_rows": 0,
+          "hourly_prediction_rows": 84702,
+          "hourly_prediction_variable": "hourly_prediction_primary",
+          "hourly_prediction_start": "1974-05-03 05:00:00",
+          "hourly_prediction_end": "1983-12-31 10:00:00",
+          "is_prediction_basis": true,
           "hourly_observed_rows": 66551,
           "hourly_overlap_rows": 66551,
+          "epoch_residual_rows": 66551,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002a/RECENT_1974-05-03_1983-12-31_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002a/RECENT_1974-05-03_1983-12-31_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002a/RECENT_1974-05-03_1983-12-31_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 47.116761488402396,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 47.11676148840167,
+          "epoch_rmse_mm": 83.58117769407613,
+          "epoch_residual_mean_mm": 2.313553101099145,
+          "epoch_residual_std_mm": 83.54915162212674,
+          "epoch_residual_abs_p95_mm": 170.95141476932793,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         }
-      ]
+      ],
+      "database_sync": {
+        "record_id": "002a",
+        "station_kind": "RQ",
+        "source_record_id": "002a",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "time_series_id": 221,
+        "id_from_source": "000002A",
+        "resolution_rule": "rq_exact_id_from_source",
+        "epoch_id_by_name": {},
+        "write_epochs": false
+      }
     },
     {
       "record_id": "002b",
@@ -356,11 +488,26 @@
       "prediction_scope": "record_span",
       "hourly_prediction": {
         "saved": true,
+        "epoch": "RECENT_1983-05-17_1988-05-10",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "variable": "hourly_prediction_primary",
         "start": "1983-05-17 07:00:00",
         "end": "1988-05-10 03:00:00",
         "rows": 43677
       },
+      "hourly_predictions": [
+        {
+          "saved": true,
+          "epoch": "RECENT_1983-05-17_1988-05-10",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "variable": "hourly_prediction_primary",
+          "start": "1983-05-17 07:00:00",
+          "end": "1988-05-10 03:00:00",
+          "rows": 43677
+        }
+      ],
       "minute_highlow_prediction": {
         "saved": false,
         "time_variable": null,
@@ -370,6 +517,7 @@
         "end": null,
         "rows": 0
       },
+      "minute_highlow_predictions": [],
       "update_cycle_months": 60,
       "update_cycle_reason": "default",
       "epochs": [
@@ -397,8 +545,8 @@
             "MN": 1206.8097078934823,
             "DHQ": 111.23085911399085,
             "DLQ": 41.926312713619154,
-            "HAT": 2809.4127728836133,
-            "LAT": 507.538215661441,
+            "HAT": 2809.4127728836093,
+            "LAT": 507.5382156614428,
             "p90_low": 947.0,
             "p95_low": 839.0,
             "p99_low": 648.09,
@@ -407,6 +555,8 @@
             "p99_high": 2599.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1576.9652656913013,
+          "harmonic_slope_mm_per_day": 0.08157965876444483,
           "top_constituents": [
             "M2",
             "S2",
@@ -425,21 +575,46 @@
             "pickle": "artifacts/datums_predictions/station002/harmonics/002b/RECENT_1983-05-17_1988-05-10_harmonics.pkl",
             "json": "artifacts/datums_predictions/station002/harmonics/002b/RECENT_1983-05-17_1988-05-10_harmonics.json"
           },
-          "hourly_prediction_rows": 0,
+          "hourly_prediction_rows": 43677,
+          "hourly_prediction_variable": "hourly_prediction_primary",
+          "hourly_prediction_start": "1983-05-17 07:00:00",
+          "hourly_prediction_end": "1988-05-10 03:00:00",
+          "is_prediction_basis": true,
           "hourly_observed_rows": 42810,
           "hourly_overlap_rows": 42810,
+          "epoch_residual_rows": 42810,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002b/RECENT_1983-05-17_1988-05-10_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002b/RECENT_1983-05-17_1988-05-10_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002b/RECENT_1983-05-17_1988-05-10_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 152.88738096153364,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 152.88738096153554,
+          "epoch_rmse_mm": 83.2016395539223,
+          "epoch_residual_mean_mm": -1.3564416699864754,
+          "epoch_residual_std_mm": 83.1905817413049,
+          "epoch_residual_abs_p95_mm": 164.37241260214572,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         }
-      ]
+      ],
+      "database_sync": {
+        "record_id": "002b",
+        "station_kind": "RQ",
+        "source_record_id": "002b",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "time_series_id": 595,
+        "id_from_source": "000002B",
+        "resolution_rule": "rq_exact_id_from_source",
+        "epoch_id_by_name": {},
+        "write_epochs": false
+      }
     },
     {
       "record_id": "002c",
@@ -456,11 +631,26 @@
       "prediction_scope": "record_span",
       "hourly_prediction": {
         "saved": true,
+        "epoch": "RECENT_1988-01-20_1997-12-31",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "variable": "hourly_prediction_primary",
         "start": "1988-01-20 05:00:00",
         "end": "1997-12-31 23:00:00",
         "rows": 87211
       },
+      "hourly_predictions": [
+        {
+          "saved": true,
+          "epoch": "RECENT_1988-01-20_1997-12-31",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "variable": "hourly_prediction_primary",
+          "start": "1988-01-20 05:00:00",
+          "end": "1997-12-31 23:00:00",
+          "rows": 87211
+        }
+      ],
       "minute_highlow_prediction": {
         "saved": false,
         "time_variable": null,
@@ -470,6 +660,7 @@
         "end": null,
         "rows": 0
       },
+      "minute_highlow_predictions": [],
       "update_cycle_months": 60,
       "update_cycle_reason": "default",
       "epochs": [
@@ -497,8 +688,8 @@
             "MN": 1278.7736155585112,
             "DHQ": 99.54611315478769,
             "DLQ": 45.79315612136452,
-            "HAT": 2891.3206151939403,
-            "LAT": 421.26073477728573,
+            "HAT": 2891.3206151939416,
+            "LAT": 421.2607347772828,
             "p90_low": 946.0,
             "p95_low": 816.0,
             "p99_low": 623.0,
@@ -507,6 +698,8 @@
             "p99_high": 2659.4199999999983
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1614.5788075713224,
+          "harmonic_slope_mm_per_day": 0.008965880389392162,
           "top_constituents": [
             "M2",
             "S2",
@@ -525,21 +718,46 @@
             "pickle": "artifacts/datums_predictions/station002/harmonics/002c/RECENT_1988-01-20_1997-12-31_harmonics.pkl",
             "json": "artifacts/datums_predictions/station002/harmonics/002c/RECENT_1988-01-20_1997-12-31_harmonics.json"
           },
-          "hourly_prediction_rows": 0,
+          "hourly_prediction_rows": 87211,
+          "hourly_prediction_variable": "hourly_prediction_primary",
+          "hourly_prediction_start": "1988-01-20 05:00:00",
+          "hourly_prediction_end": "1997-12-31 23:00:00",
+          "is_prediction_basis": true,
           "hourly_observed_rows": 87159,
           "hourly_overlap_rows": 87159,
+          "epoch_residual_rows": 87159,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002c/RECENT_1988-01-20_1997-12-31_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002c/RECENT_1988-01-20_1997-12-31_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002c/RECENT_1988-01-20_1997-12-31_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 80.26037256540396,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 80.26037256540371,
+          "epoch_rmse_mm": 78.34735559033095,
+          "epoch_residual_mean_mm": -0.0038510471955907704,
+          "epoch_residual_std_mm": 78.34735549568472,
+          "epoch_residual_abs_p95_mm": 156.74002559837803,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         }
-      ]
+      ],
+      "database_sync": {
+        "record_id": "002c",
+        "station_kind": "RQ",
+        "source_record_id": "002c",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "time_series_id": 449,
+        "id_from_source": "000002C",
+        "resolution_rule": "rq_exact_id_from_source",
+        "epoch_id_by_name": {},
+        "write_epochs": false
+      }
     },
     {
       "record_id": "002d",
@@ -564,13 +782,31 @@
       "prediction_scope": "long_future",
       "hourly_prediction": {
         "saved": true,
+        "epoch": "NTDE_2002-2020",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "variable": "hourly_prediction_primary",
         "start": "1992-12-04 01:00:00",
         "end": "2100-12-31 23:00:00",
         "rows": 947375
       },
+      "hourly_predictions": [
+        {
+          "saved": true,
+          "epoch": "NTDE_2002-2020",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "variable": "hourly_prediction_primary",
+          "start": "1992-12-04 01:00:00",
+          "end": "2100-12-31 23:00:00",
+          "rows": 947375
+        }
+      ],
       "minute_highlow_prediction": {
         "saved": true,
+        "epoch": "NTDE_2002-2020",
+        "prediction_key": "primary",
+        "is_prediction_basis": true,
         "time_variable": "minute_highlow_time_primary",
         "height_variable": "minute_highlow_height_mm_primary",
         "type_variable": "minute_highlow_type_primary",
@@ -578,6 +814,20 @@
         "end": "2030-12-31 23:59:00",
         "rows": 8467
       },
+      "minute_highlow_predictions": [
+        {
+          "saved": true,
+          "epoch": "NTDE_2002-2020",
+          "prediction_key": "primary",
+          "is_prediction_basis": true,
+          "time_variable": "minute_highlow_time_primary",
+          "height_variable": "minute_highlow_height_mm_primary",
+          "type_variable": "minute_highlow_type_primary",
+          "start": "2025-01-01 00:00:00",
+          "end": "2030-12-31 23:59:00",
+          "rows": 8467
+        }
+      ],
       "update_cycle_months": 60,
       "update_cycle_reason": "default",
       "epochs": [
@@ -605,8 +855,8 @@
             "MN": 1277.6480610257481,
             "DHQ": 102.59814559083452,
             "DLQ": 49.27395405080483,
-            "HAT": 2974.503665239202,
-            "LAT": 503.23306541376496,
+            "HAT": 2974.503665239198,
+            "LAT": 503.23306541376905,
             "p90_low": 1020.0,
             "p95_low": 890.0,
             "p99_low": 704.0,
@@ -615,6 +865,8 @@
             "p99_high": 2737.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1689.6442629335315,
+          "harmonic_slope_mm_per_day": 0.00795548074270206,
           "top_constituents": [
             "M2",
             "S2",
@@ -633,18 +885,31 @@
             "pickle": "artifacts/datums_predictions/station002/harmonics/002d/NTDE_2002-2020_harmonics.pkl",
             "json": "artifacts/datums_predictions/station002/harmonics/002d/NTDE_2002-2020_harmonics.json"
           },
-          "hourly_prediction_rows": 0,
+          "hourly_prediction_rows": 947375,
+          "hourly_prediction_variable": "hourly_prediction_primary",
+          "hourly_prediction_start": "1992-12-04 01:00:00",
+          "hourly_prediction_end": "2100-12-31 23:00:00",
+          "is_prediction_basis": true,
           "hourly_observed_rows": 160999,
           "hourly_overlap_rows": 160999,
+          "epoch_residual_rows": 160999,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002d/NTDE_2002-2020_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002d/NTDE_2002-2020_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002d/NTDE_2002-2020_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 45.720409555232756,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 45.720409555232756,
+          "epoch_rmse_mm": 72.87309641498089,
+          "epoch_residual_mean_mm": 0.376134434065525,
+          "epoch_residual_std_mm": 72.8721256997119,
+          "epoch_residual_abs_p95_mm": 141.71673782768227,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 8467,
+          "minute_highlow_time_variable": "minute_highlow_time_primary",
+          "minute_highlow_height_variable": "minute_highlow_height_mm_primary",
+          "minute_highlow_type_variable": "minute_highlow_type_primary",
           "switch_levels": null
         },
         {
@@ -671,8 +936,8 @@
             "MN": 1279.0395057465307,
             "DHQ": 103.41479052610657,
             "DLQ": 48.5502418623355,
-            "HAT": 2939.587344439332,
-            "LAT": 473.0283920696238,
+            "HAT": 2939.587344439333,
+            "LAT": 473.0283920696206,
             "p90_low": 984.0,
             "p95_low": 852.0,
             "p99_low": 660.0,
@@ -681,6 +946,8 @@
             "p99_high": 2701.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1654.6757438406657,
+          "harmonic_slope_mm_per_day": 0.014168521574363758,
           "top_constituents": [
             "M2",
             "S2",
@@ -700,17 +967,30 @@
             "json": "artifacts/datums_predictions/station002/harmonics/002d/IPCC-AR6_1995-2014_harmonics.json"
           },
           "hourly_prediction_rows": 0,
+          "hourly_prediction_variable": null,
+          "hourly_prediction_start": null,
+          "hourly_prediction_end": null,
+          "is_prediction_basis": false,
           "hourly_observed_rows": 169999,
           "hourly_overlap_rows": 169999,
+          "epoch_residual_rows": 169999,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002d/IPCC-AR6_1995-2014_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002d/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002d/IPCC-AR6_1995-2014_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 45.86446732374742,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 45.86446732374838,
+          "epoch_rmse_mm": 82.68277996395459,
+          "epoch_residual_mean_mm": -0.2010601159556845,
+          "epoch_residual_std_mm": 82.68253550416497,
+          "epoch_residual_abs_p95_mm": 174.94570205139243,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         },
         {
@@ -737,8 +1017,8 @@
             "MN": 1276.035196983291,
             "DHQ": 106.9638696223833,
             "DLQ": 48.35521291761927,
-            "HAT": 2976.8095153588274,
-            "LAT": 510.17251754957715,
+            "HAT": 2976.8095153588256,
+            "LAT": 510.17251754958124,
             "p90_low": 1020.0,
             "p95_low": 890.0,
             "p99_low": 704.0,
@@ -747,6 +1027,8 @@
             "p99_high": 2733.0
           },
           "harmonic_constituent_count": 68,
+          "harmonic_mean_mm": 1688.3833293153384,
+          "harmonic_slope_mm_per_day": 0.00963403122203064,
           "top_constituents": [
             "M2",
             "S2",
@@ -766,20 +1048,72 @@
             "json": "artifacts/datums_predictions/station002/harmonics/002d/RECENT_2002-12-31_2021-12-31_harmonics.json"
           },
           "hourly_prediction_rows": 0,
+          "hourly_prediction_variable": null,
+          "hourly_prediction_start": null,
+          "hourly_prediction_end": null,
+          "is_prediction_basis": false,
           "hourly_observed_rows": 160771,
           "hourly_overlap_rows": 160771,
+          "epoch_residual_rows": 160771,
           "plots": {
             "datums": "artifacts/datums_predictions/station002/plots/002d/RECENT_2002-12-31_2021-12-31_datums.png",
             "hourly_observed_vs_predicted": "artifacts/datums_predictions/station002/plots/002d/RECENT_2002-12-31_2021-12-31_hourly_observed_vs_predicted.png",
             "hourly_residuals": "artifacts/datums_predictions/station002/plots/002d/RECENT_2002-12-31_2021-12-31_hourly_residuals.png",
             "fd_high_low": null
           },
-          "comparison_window_rows": 744,
-          "comparison_window_rmse_mm": 66.32174863809867,
+          "plot_window_rows": 744,
+          "plot_window_rmse_mm": 66.3217486380995,
+          "epoch_rmse_mm": 72.62794728758288,
+          "epoch_residual_mean_mm": 0.5309412396323969,
+          "epoch_residual_std_mm": 72.62600655831199,
+          "epoch_residual_abs_p95_mm": 141.18911820941298,
           "fd_high_low_rows": 0,
+          "minute_highlow_prediction_rows": 0,
+          "minute_highlow_time_variable": null,
+          "minute_highlow_height_variable": null,
+          "minute_highlow_type_variable": null,
           "switch_levels": null
         }
-      ]
+      ],
+      "database_sync": {
+        "record_id": "002d",
+        "station_kind": "RQ",
+        "source_record_id": "002d",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "time_series_id": 180,
+        "id_from_source": "000002D",
+        "resolution_rule": "rq_exact_id_from_source",
+        "epoch_id_by_name": {},
+        "write_epochs": false
+      }
     }
-  ]
+  ],
+  "source_reconciliation": {
+    "station_id": "002",
+    "db_rq_versions": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "erddap_rq_versions": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "rq_versions_to_process": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "db_only_rq_versions": [],
+    "erddap_only_rq_versions": [],
+    "fd_source_record_id": "002",
+    "fd_time_series_id": 180,
+    "fd_id_from_source": "000002D",
+    "status": "ok"
+  }
 }

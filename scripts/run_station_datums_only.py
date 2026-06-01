@@ -156,7 +156,8 @@ def _run_record(station_id: str, station_kind: str, output_root: Path, version: 
 
 
 def _run_station(station_id: str) -> None:
-    output_root = Path("artifacts") / "datums_only" / f"station{station_id}"
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    output_root = REPO_ROOT / "artifacts" / "datums_only" / f"station{station_id}"
     output_root.mkdir(parents=True, exist_ok=True)
     log(f"Starting station {station_id} datums_only run")
     rq_versions = list_rq_versions([station_id])[station_id]
