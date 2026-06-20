@@ -1,22 +1,33 @@
 # Station 007 Datums Predictions
 
-Output root: `artifacts/datums_predictions/station007`
+Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007`
 
 ## Source reconciliation
 - Status: `ok`
-- DB RQ versions: `A, B`
-- ERDDAP RQ versions: `A, B`
+- DB time_series identity versions: `A, B`
+- DB rq/hourly versions from date_range_by_time_series_quality: `A, B`
+- ERDDAP metadata RQ versions: `A, B`
 - RQ versions processed: `A, B`
-- DB-only RQ versions skipped: `none`
-- ERDDAP-only RQ versions unsafe for DB writes: `none`
+- time_series versions without DB rq/hourly availability: `none`
+- DB rq/hourly versions missing from ERDDAP metadata: `none`
+- ERDDAP metadata RQ versions ignored because DB has no rq/hourly range: `none`
+- ERDDAP metadata RQ versions without time_series identity rows: `none`
 - FD/best_available source `007` resolved to `time_series_id=315`, `id_from_source=000007B`
 
 ## 007
 - Station name: Malakal
 - Station kind: FD
-- NetCDF: `artifacts/datums_predictions/station007/netcdf/007.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007.nc`
 - Database sync: `time_series_id=315`, `id_from_source=000007B`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1969-05-18 15:00:00` to `2100-12-31 23:00:00` (1153785 rows)
@@ -31,9 +42,17 @@ Output root: `artifacts/datums_predictions/station007`
 ## 007a
 - Station name: Malakal
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station007/netcdf/007a.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007a.nc`
 - Database sync: `time_series_id=372`, `id_from_source=000007A`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `RECENT_1926-01-01_1939-12-10`
 - Prediction scope: `record_span`
 - Saved hourly prediction: `hourly_prediction_primary` from `1926-01-01 01:00:00` to `1939-12-10 15:00:00` (122199 rows)
@@ -45,9 +64,17 @@ Output root: `artifacts/datums_predictions/station007`
 ## 007b
 - Station name: Malakal
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station007/netcdf/007b.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007b.nc`
 - Database sync: `time_series_id=315`, `id_from_source=000007B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1969-05-18 15:00:00` to `2100-12-31 23:00:00` (1153785 rows)

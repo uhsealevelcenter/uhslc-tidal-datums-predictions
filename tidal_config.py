@@ -80,6 +80,79 @@ class DatabasePolicy:
     write_epochs: bool = False
     log_epoch_plan: bool = True
 
+    # Datum writes depend on epoch sync results. Datum rows are written by
+    # epoch_id and time_series_id, using the epoch database sync manifest as the
+    # source of truth for identity.
+    write_datums: bool = False
+    log_datum_plan: bool = True
+
+    # Constituent writes depend on epoch sync results. Constituent rows are written
+    # by epoch_id and time_series_id, using the epoch database sync manifest as the
+    # source of truth for identity.
+    write_constituents: bool = False
+    log_constituent_plan: bool = True
+
+    # Hourly tide prediction writes depend on epoch sync results. Values are written
+    # in meters, rounded before insert/update.
+    write_tide_predictions: bool = False
+    log_tide_prediction_plan: bool = True
+
+    # Minute high/low prediction writes. FD products use the generated operational
+    # high/low window. RQ products are bounded by the DB-authoritative rq/hourly
+    # range from date_range_by_time_series_quality.
+    write_high_low_predictions: bool = False
+    log_high_low_prediction_plan: bool = True
+
+    # Database prediction values are stored in meters. The generated prediction
+    # products are currently in millimeters.
+    prediction_value_mm_to_database_meters: float = 0.001
+    prediction_value_decimal_places: int = 4
+
+    # Temporal resolution lookup for public.tide_prediction.
+    hourly_temporal_resolution_code: str = "hourly"
+
+    # Batch size for large prediction inserts.
+    prediction_insert_batch_size: int = 10000
+
+    # Optional explicit best_available cutover cleanup.
+    #
+    # Each entry is:
+    #   (old_id_from_source, new_id_from_source, cutover_time)
+    #
+    # Example:
+    #   ("000014D", "000014E", "2026-05-01 00:00:00")
+    #
+    # This is intentionally explicit. The code should not guess a D->E boundary.
+    prediction_cutover_cleanups: tuple[tuple[str, str, str], ...] = ()
+    write_prediction_cutover_cleanup: bool = False
+    log_prediction_cutover_cleanup_plan: bool = True
+
+    # Names used to query public.date_range_by_time_series_quality.
+    #
+    # fd is used for best_available/current-stream cleanup.
+    # rq is used to bound research_quality prediction writes.
+    fd_record_quality_short_name: str = "fd"
+    rq_record_quality_short_name: str = "rq"
+
+    # Automatic cleanup for superseded best_available prediction rows.
+    #
+    # This uses public.date_range_by_time_series_quality as the authoritative
+    # source of valid FD/best_available date ranges. It does not guess from the
+    # latest version suffix.
+    #
+    # When the unversioned FD source resolves to the current target, earlier FD
+    # targets for the same station/priority are treated as superseded. Their
+    # tide_prediction and high_low_prediction rows are trimmed to their valid
+    # materialized-view date_begin/date_end windows.
+    auto_cleanup_superseded_best_available_predictions: bool = False
+    write_prediction_auto_cleanup: bool = False
+    log_prediction_auto_cleanup_plan: bool = True
+
+    # Some stations may have RQ/versioned records but no usable FD/unversioned
+    # record. In warn mode, allow the station run to skip FD and continue with
+    # exact RQ records. In strict mode, FD failures still raise.
+    require_fd_record: bool = False
+
     # Compare the database's station/version inventory with the ERDDAP records
     # available to this run before any epoch rows are written.
     reconcile_station_inventory: bool = True
@@ -91,7 +164,11 @@ class DatabasePolicy:
     #   safe DB target. DB-only records are reported/skipped.
     #
     # "strict":
-    #   Raise before processing the station if any DB/ERDDAP gap exists.
+    #   Raise before processing the station if a DB-authoritative rq/hourly version
+    #   is missing from ERDDAP metadata, or if the FD/best_available DB target cannot
+    #   be resolved. FD-only stations are valid when DB has no rq/hourly date ranges.
+    #   ERDDAP metadata-only RQ versions are reported but ignored because DB
+    #   date_range_by_time_series_quality is authoritative for RQ availability.
     reconciliation_mode: str = "warn"
 
     # Fail epoch writes unless the target time_series row can be resolved from
@@ -162,22 +239,22 @@ EPOCH_POLICY = EpochPolicy(
     )
 )
 
-# Default behavior - save predictions only for the prediction_basis_epoch. 
-PREDICTION_POLICY = PredictionPolicy()
+# Define whether to save predictions for all epochs or only the prediction_basis_epoch.
+PREDICTION_POLICY = PredictionPolicy(
+    save_predictions_for_all_epochs=False,
+)
 
-# Optional - save predictions for all epochs.
-# PREDICTION_POLICY = PredictionPolicy(
-#     save_predictions_for_all_epochs=True,
-# )
-
-# Default behavior - do not write database products.
-DATABASE_POLICY = DatabasePolicy()
-
-# Optional - enable epoch writes to Timescale/Postgres.
-# DATABASE_POLICY = DatabasePolicy(
-#     write_epochs=True,
-#     reconciliation_mode="warn",
-# )
+# Define what datasets to write to the database.
+DATABASE_POLICY = DatabasePolicy(
+    write_epochs=False,
+    write_datums=False,
+    write_constituents=False,
+    write_tide_predictions=False,
+    write_high_low_predictions=False,
+    auto_cleanup_superseded_best_available_predictions=False,
+    write_prediction_auto_cleanup=False,
+    reconciliation_mode="warn",
+)
 
 
 def minute_prediction_window(

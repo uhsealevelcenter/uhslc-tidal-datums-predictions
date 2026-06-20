@@ -44,6 +44,9 @@ MAX_PREDICTION_END = PREDICTION_POLICY.long_hourly_end
 MAX_MINUTE_PREDICTION_START, MAX_MINUTE_PREDICTION_END = minute_prediction_window(pd.Timestamp("2026-01-01"))
 TIDE_TYPE_EQUALITY_FRACTION = 0.10
 
+class ErddapNoRowsError(RuntimeError):
+    """Raised when ERDDAP returns a valid no-matching-rows response."""
+
 @dataclass
 class Epoch:
     name: str
@@ -212,7 +215,15 @@ def load_erddap_csv(url: str) -> pd.DataFrame:
             df.columns = [re.sub(r'\s*\(.*?\)\s*$', '', str(c)).strip() for c in df.columns]
             return strip_erddap_units_row(df)
 
-        last_error = RuntimeError(r.text[:1200])
+        error_text = r.text[:1200]
+
+        if r.status_code == 404 and (
+            "nRows = 0" in error_text
+            or "Your query produced no matching results" in error_text
+        ):
+            raise ErddapNoRowsError(error_text)
+
+        last_error = RuntimeError(error_text)
         retryable = r.status_code in {429, 500, 502, 503, 504} or 'Service Unavailable' in r.text
         if retryable and attempt < 3:
             time.sleep(2 * (attempt + 1))

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 import sys
 import gc
 import os
 import re
 from typing import Any
+from psycopg2.extras import execute_values
 
 import matplotlib
 matplotlib.use("Agg")
@@ -26,6 +29,7 @@ from core import (
     build_netcdf_dataset,
     clean_hourly_dataframe,
     compute_datums,
+    ErddapNoRowsError,
     fetch_fd_hourly,
     fetch_rq_hourly,
     fit_harmonics,
@@ -85,13 +89,161 @@ class EpochSyncResult:
 
 
 @dataclass(frozen=True)
+class DatumSyncResult:
+    """Database write manifest produced by the datum sync step.
+
+    Datum sync must consume EpochSyncResult and must not independently resolve
+    station/version identity.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    datum_id_by_epoch_and_short_name: dict[str, dict[str, int]]
+    rows_planned: int
+    rows_written: int
+    write_datums: bool
+
+
+@dataclass(frozen=True)
+class ConstituentSyncResult:
+    """Database write manifest produced by the constituent sync step.
+
+    Constituent sync must consume EpochSyncResult and must not independently
+    resolve station/version identity.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    constituent_id_by_epoch_and_short_name: dict[str, dict[str, int]]
+    missing_definition_short_names: list[str]
+    rows_planned: int
+    rows_written: int
+    write_constituents: bool
+
+
+@dataclass(frozen=True)
+class TidePredictionSyncResult:
+    """Database write manifest produced by hourly tide prediction sync.
+
+    Tide prediction sync must consume EpochSyncResult and must not independently
+    resolve station/version identity.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    resolution_id: int
+    rows_planned: int
+    rows_deleted: int
+    rows_written: int
+    rows_skipped: int
+    write_tide_predictions: bool
+    notes: list[str]
+
+
+@dataclass(frozen=True)
+class HighLowPredictionSyncResult:
+    """Database write manifest produced by minute high/low prediction sync.
+
+    High/low prediction sync must consume EpochSyncResult and must not
+    independently resolve station/version identity.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    rows_planned: int
+    rows_deleted: int
+    rows_written: int
+    rows_skipped: int
+    write_high_low_predictions: bool
+    notes: list[str]
+
+
+@dataclass(frozen=True)
+class PredictionDbWindow:
+    """DB metadata used to bound prediction writes for one processed record.
+
+    FD/current best_available records use the generated operational windows and
+    therefore have no date_begin/date_end bound here.
+
+    RQ records use the rq/hourly row from date_range_by_time_series_quality.
+    """
+
+    resolution_id: int
+    temporal_resolution_code: str
+    record_quality_short_name: str | None
+    date_begin: pd.Timestamp | None
+    date_end: pd.Timestamp | None
+    date_range_last_update: pd.Timestamp | None
+
+
+@dataclass(frozen=True)
+class PredictionAutoCleanupResult:
+    """Cleanup manifest for superseded best_available prediction rows.
+
+    This cleanup is DB-driven by public.date_range_by_time_series_quality.
+    It trims superseded FD/best_available prediction rows to their valid
+    materialized-view date range and does not independently resolve station
+    identity.
+    """
+
+    current_time_series_id: int
+    current_id_from_source: str
+    fd_quality_short_name: str
+    temporal_resolution_code: str
+    actions: list[dict[str, Any]]
+    tide_prediction_rows_deleted: int
+    high_low_prediction_rows_deleted: int
+    write_cleanup: bool
+    notes: list[str]
+
+
+@dataclass(frozen=True)
 class StationSourceReconciliation:
     station_id: str
+
+    # Identity rows in public.time_series. These are valid DB identities/targets,
+    # but they do NOT prove RQ observations exist.
+    db_time_series_versions: list[str]
+
+    # DB-authoritative RQ/hourly availability from
+    # public.date_range_by_time_series_quality.
     db_rq_versions: list[str]
+
+    # Metadata-listed RQ versions from UHSLC/ERDDAP metadata.
     erddap_rq_versions: list[str]
+
+    # Versions safe to process as RQ: present in DB rq/hourly ranges and metadata.
     rq_versions_to_process: list[str]
+
+    # DB says rq/hourly exists, but metadata does not list the version.
     db_only_rq_versions: list[str]
-    erddap_only_rq_versions: list[str]
+
+    # Metadata lists the version, but DB has no rq/hourly date range for it.
+    # These are ignored for RQ processing because DB is the decider.
+    erddap_metadata_only_rq_versions: list[str]
+
+    # public.time_series has an identity row, but DB has no rq/hourly range.
+    db_time_series_without_rq_versions: list[str]
+
+    # Metadata lists an RQ version, but no matching time_series identity exists.
+    erddap_versions_without_time_series: list[str]
+
     fd_source_record_id: str
     fd_time_series_id: int | None
     fd_id_from_source: str | None
@@ -168,6 +320,7 @@ def _candidate_database_utils_dirs() -> list[Path]:
     return unique_candidates
 
 
+@lru_cache(maxsize=1)
 def _load_database_tools():
     """Dynamically import Timescale utilities only when database access is needed."""
 
@@ -209,6 +362,25 @@ def _load_database_tools():
         "or PROCESS_ENV. "
         f"Attempted directories: {attempted_dirs}"
     )
+
+
+@contextmanager
+def _tsdb_connection():
+    """Open a Timescale/Postgres connection and always close it.
+
+    Write functions should still explicitly commit/rollback around the work they
+    perform. This helper only centralizes connection creation/cleanup.
+    """
+
+    CommonUtils, TSDataProcessor = _load_database_tools()
+    env_utils = CommonUtils()
+    ts_processor = TSDataProcessor()
+    conn = env_utils.connect_2_tsdb()
+
+    try:
+        yield conn, ts_processor
+    finally:
+        conn.close()
 
 
 def _time_series_id_from_source_prefix(station_id: str) -> str:
@@ -335,6 +507,60 @@ def _query_exact_time_series_row_by_id_from_source(
     return rows[0]
 
 
+def _query_station_quality_versions_from_date_ranges(
+    conn,
+    station_id: str,
+    *,
+    record_quality_short_name: str,
+    temporal_resolution_code: str,
+) -> list[str]:
+    """Return station versions with authoritative quality/resolution date ranges.
+
+    For RQ availability, call this with rq/hourly. This intentionally uses
+    public.date_range_by_time_series_quality as the availability source instead
+    of public.time_series alone. When a time_series row is linked, prefer its
+    id_from_source for version parsing because exact RQ writes use that identity.
+    """
+
+    prefix = _time_series_id_from_source_prefix(station_id)
+
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT DISTINCT
+          COALESCE(ts.id_from_source, r.id_from_source) AS id_from_source
+        FROM public.date_range_by_time_series_quality r
+        LEFT JOIN public.time_series ts
+          ON ts.id = r.time_series_id
+        JOIN public.record_quality q
+          ON q.id = r.quality_id
+        JOIN public.temporal_resolution tr
+          ON tr.id = r.resolution_id
+        WHERE upper(COALESCE(ts.id_from_source, r.id_from_source)) LIKE upper(%s)
+          AND lower(q.short_name) = lower(%s)
+          AND tr.resolution = %s
+        ORDER BY id_from_source
+        """,
+        (
+            f"{prefix}%",
+            str(record_quality_short_name),
+            str(temporal_resolution_code),
+        ),
+    )
+
+    versions: set[str] = set()
+
+    for row in rows:
+        version = _version_from_id_from_source(
+            station_id,
+            str(row["id_from_source"]),
+        )
+        if version is not None:
+            versions.add(version)
+
+    return sorted(versions)
+
+
 def _query_station_time_series_rows(conn, station_id: str) -> list[DBTimeSeriesRow]:
     """Return candidate time_series rows for a station from id_from_source."""
 
@@ -456,7 +682,8 @@ def _build_station_source_reconciliation(
 
     try:
         rows = _query_station_time_series_rows(conn, station_id)
-        db_rq_versions = sorted(
+
+        db_time_series_versions = sorted(
             {
                 version
                 for row in rows
@@ -467,11 +694,25 @@ def _build_station_source_reconciliation(
             }
         )
 
+        db_rq_versions = _query_station_quality_versions_from_date_ranges(
+            conn,
+            station_id,
+            record_quality_short_name=DATABASE_POLICY.rq_record_quality_short_name,
+            temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+        )
+
         erddap_versions = sorted(str(version).upper() for version in erddap_rq_versions)
 
-        db_only = sorted(set(db_rq_versions) - set(erddap_versions))
-        erddap_only = sorted(set(erddap_versions) - set(db_rq_versions))
-        to_process = sorted(set(db_rq_versions).intersection(erddap_versions))
+        db_rq_set = set(db_rq_versions)
+        db_time_series_set = set(db_time_series_versions)
+        erddap_set = set(erddap_versions)
+
+        db_only = sorted(db_rq_set - erddap_set)
+        erddap_metadata_only = sorted(erddap_set - db_rq_set)
+        to_process = sorted(db_rq_set.intersection(erddap_set))
+
+        db_time_series_without_rq = sorted(db_time_series_set - db_rq_set)
+        erddap_without_time_series = sorted(erddap_set - db_time_series_set)
 
         fd_time_series_id: int | None = None
         fd_id_from_source: str | None = None
@@ -491,21 +732,33 @@ def _build_station_source_reconciliation(
                 f"{exc}"
             )
 
-        status = "ok"
-
-        if db_only or erddap_only:
-            status = "source_gaps"
-
         if fd_time_series_id is None:
             status = "source_gaps"
+        elif db_only:
+            # DB says rq/hourly should exist, but ERDDAP metadata does not list it.
+            # In warn mode, process the safe intersection and report the gap.
+            status = "source_gaps"
+        elif not db_rq_versions:
+            # No DB-authoritative rq/hourly date ranges. This is a valid FD-only
+            # station state, even if metadata lists candidate RQ versions.
+            status = "fd_only"
+        elif erddap_metadata_only:
+            # DB rq/hourly ranges are the decider. Extra metadata versions are
+            # ignored for RQ processing but reported clearly.
+            status = "ok_with_erddap_metadata_only"
+        else:
+            status = "ok"
 
         return StationSourceReconciliation(
             station_id=station_id,
+            db_time_series_versions=db_time_series_versions,
             db_rq_versions=db_rq_versions,
             erddap_rq_versions=erddap_versions,
             rq_versions_to_process=to_process,
             db_only_rq_versions=db_only,
-            erddap_only_rq_versions=erddap_only,
+            erddap_metadata_only_rq_versions=erddap_metadata_only,
+            db_time_series_without_rq_versions=db_time_series_without_rq,
+            erddap_versions_without_time_series=erddap_without_time_series,
             fd_source_record_id=station_id,
             fd_time_series_id=fd_time_series_id,
             fd_id_from_source=fd_id_from_source,
@@ -521,8 +774,9 @@ def _log_station_source_reconciliation(
 ) -> None:
     log(
         f"Station {reconciliation.station_id}: source reconciliation | "
-        f"DB RQ versions={reconciliation.db_rq_versions or 'none'} | "
-        f"ERDDAP RQ versions={reconciliation.erddap_rq_versions or 'none'} | "
+        f"DB time_series versions={reconciliation.db_time_series_versions or 'none'} | "
+        f"DB rq/hourly versions={reconciliation.db_rq_versions or 'none'} | "
+        f"ERDDAP metadata RQ versions={reconciliation.erddap_rq_versions or 'none'} | "
         f"to_process={reconciliation.rq_versions_to_process or 'none'} | "
         f"status={reconciliation.status}"
     )
@@ -534,20 +788,40 @@ def _log_station_source_reconciliation(
         f"id_from_source={reconciliation.fd_id_from_source}"
     )
 
+    if reconciliation.db_time_series_without_rq_versions:
+        log(
+            f"Station {reconciliation.station_id}: time_series identity versions "
+            f"without DB rq/hourly availability: "
+            f"{', '.join(reconciliation.db_time_series_without_rq_versions)}"
+        )
+
     if reconciliation.db_only_rq_versions:
         log(
-            f"Station {reconciliation.station_id}: DB-only RQ versions missing from "
-            f"ERDDAP and skipped: {', '.join(reconciliation.db_only_rq_versions)}"
+            f"Station {reconciliation.station_id}: DB rq/hourly versions missing from "
+            f"ERDDAP metadata and skipped: "
+            f"{', '.join(reconciliation.db_only_rq_versions)}"
         )
 
-    if reconciliation.erddap_only_rq_versions:
+    if reconciliation.erddap_metadata_only_rq_versions:
         log(
-            f"Station {reconciliation.station_id}: ERDDAP-only RQ versions missing from "
-            f"DB and not safe for DB writes: "
-            f"{', '.join(reconciliation.erddap_only_rq_versions)}"
+            f"Station {reconciliation.station_id}: ERDDAP metadata RQ versions without "
+            f"DB rq/hourly date ranges; ignored for RQ processing because DB is "
+            f"authoritative: "
+            f"{', '.join(reconciliation.erddap_metadata_only_rq_versions)}"
         )
 
-    if DATABASE_POLICY.reconciliation_mode == "strict" and reconciliation.status != "ok":
+    if reconciliation.erddap_versions_without_time_series:
+        log(
+            f"Station {reconciliation.station_id}: ERDDAP metadata RQ versions without "
+            f"matching time_series identity rows: "
+            f"{', '.join(reconciliation.erddap_versions_without_time_series)}"
+        )
+
+    if DATABASE_POLICY.reconciliation_mode == "strict" and reconciliation.status not in {
+        "ok",
+        "fd_only",
+        "ok_with_erddap_metadata_only",
+    }:
         raise RuntimeError(
             f"Station {reconciliation.station_id}: source reconciliation failed in "
             f"strict mode: {asdict(reconciliation)}"
@@ -721,6 +995,2273 @@ def _sync_record_epochs_to_database(
         conn.close()
 
 
+DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME = {
+    "dhq": "dhq",
+    "dlq": "dlq",
+    "dtl": "dtl",
+    "gt": "gt",
+    "hat": "hat",
+    "lat": "lat",
+    "mhhw": "mhhw",
+    "mhw": "mhw",
+    "mllw": "mllw",
+    "mlw": "mlw",
+    "mn": "mn",
+    "msl": "msl",
+    "mtl": "mtl",
+}
+
+DATUM_TIME_KEY_TO_DEFINITION_SHORT_NAME = {
+    "hat_time": "hat_time",
+    "lat_time": "lat_time",
+}
+
+# Computed datum values in this pipeline are millimeters relative to station
+# zero. public.datum.value stores elevations/ranges in meters.
+DATUM_VALUE_MM_TO_DATABASE_METERS = 0.001
+DATUM_DATABASE_VALUE_DECIMAL_PLACES = 4
+
+
+def _is_missing_database_value(value: Any) -> bool:
+    if value is None:
+        return True
+
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _query_datum_definition_id_by_short_name(conn) -> dict[str, int]:
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT id, short_name
+        FROM public.datum_definition
+        """,
+        (),
+    )
+
+    return {
+        str(row["short_name"]).strip().lower(): int(row["id"])
+        for row in rows
+    }
+
+
+def _build_datum_db_dataframe(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    definition_id_by_short_name: dict[str, int],
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+
+    if not epoch_sync.epoch_id_by_name:
+        raise RuntimeError(
+            f"{record['record_id']}: cannot build datum DB rows because "
+            "epoch_sync.epoch_id_by_name is empty. Enable write_epochs=True "
+            "before write_datums=True."
+        )
+
+    for epoch_summary in record["epochs"]:
+        epoch_name = str(epoch_summary["epoch"]["name"])
+
+        if epoch_name not in epoch_sync.epoch_id_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: epoch {epoch_name!r} is missing from "
+                f"epoch_sync.epoch_id_by_name={epoch_sync.epoch_id_by_name}."
+            )
+
+        epoch_id = int(epoch_sync.epoch_id_by_name[epoch_name])
+        datum_values = epoch_summary["datum"]
+
+        for datum_key, raw_value in datum_values.items():
+            short_name = DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME.get(
+                str(datum_key).strip().lower()
+            )
+
+            if short_name is None:
+                continue
+
+            if short_name not in definition_id_by_short_name:
+                raise RuntimeError(
+                    f"{record['record_id']}: datum_definition short_name={short_name!r} "
+                    "is missing from public.datum_definition."
+                )
+
+            if _is_missing_database_value(raw_value):
+                continue
+
+            rows.append(
+                {
+                    "epoch_name": epoch_name,
+                    "definition_short_name": short_name,
+                    "definition_id": int(definition_id_by_short_name[short_name]),
+                    "epoch_id": epoch_id,
+                    "time_series_id": int(epoch_sync.time_series_id),
+                    "value": round(
+                        float(raw_value) * DATUM_VALUE_MM_TO_DATABASE_METERS,
+                        DATUM_DATABASE_VALUE_DECIMAL_PLACES,
+                    ),
+                    "time": None,
+                }
+            )
+
+        for datum_key, raw_time in datum_values.items():
+            short_name = DATUM_TIME_KEY_TO_DEFINITION_SHORT_NAME.get(
+                str(datum_key).strip().lower()
+            )
+
+            if short_name is None:
+                continue
+
+            if short_name not in definition_id_by_short_name:
+                raise RuntimeError(
+                    f"{record['record_id']}: datum_definition short_name={short_name!r} "
+                    "is missing from public.datum_definition."
+                )
+
+            if _is_missing_database_value(raw_time):
+                continue
+
+            rows.append(
+                {
+                    "epoch_name": epoch_name,
+                    "definition_short_name": short_name,
+                    "definition_id": int(definition_id_by_short_name[short_name]),
+                    "epoch_id": epoch_id,
+                    "time_series_id": int(epoch_sync.time_series_id),
+                    "value": None,
+                    "time": pd.Timestamp(raw_time),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def _log_datum_db_plan(record: dict[str, Any], datum_df: pd.DataFrame) -> None:
+    log(
+        f"{record['record_id']}: database datum sync plan | "
+        f"datums={len(datum_df)} | value_units=meters | "
+        f"write_datums={DATABASE_POLICY.write_datums}"
+    )
+
+    if datum_df.empty:
+        return
+
+    for epoch_name, epoch_df in datum_df.groupby("epoch_name", sort=True):
+        short_names = ", ".join(sorted(epoch_df["definition_short_name"].astype(str)))
+        log(
+            f"{record['record_id']}: "
+            f"{'UPSERT' if DATABASE_POLICY.write_datums else 'WOULD UPSERT'} "
+            f"{len(epoch_df)} datum row(s) for epoch {epoch_name}: {short_names}"
+        )
+
+
+def _upsert_datums_to_database(
+    conn,
+    datum_df: pd.DataFrame,
+) -> dict[str, dict[str, int]]:
+    datum_id_by_epoch_and_short_name: dict[str, dict[str, int]] = {}
+
+    try:
+        with conn.cursor() as cur:
+            for row in datum_df.to_dict("records"):
+                raw_value = row["value"]
+                raw_time = row["time"]
+
+                value = (
+                    None
+                    if _is_missing_database_value(raw_value)
+                    else float(raw_value)
+                )
+                datum_time = (
+                    None
+                    if _is_missing_database_value(raw_time)
+                    else pd.Timestamp(raw_time).to_pydatetime()
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO public.datum (
+                        value,
+                        definition_id,
+                        epoch_id,
+                        "time",
+                        time_series_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (time_series_id, epoch_id, definition_id)
+                    DO UPDATE SET
+                        value = EXCLUDED.value,
+                        "time" = EXCLUDED."time"
+                    RETURNING id
+                    """,
+                    (
+                        value,
+                        int(row["definition_id"]),
+                        int(row["epoch_id"]),
+                        datum_time,
+                        int(row["time_series_id"]),
+                    ),
+                )
+
+                datum_id = int(cur.fetchone()[0])
+                epoch_name = str(row["epoch_name"])
+                short_name = str(row["definition_short_name"])
+
+                datum_id_by_epoch_and_short_name.setdefault(epoch_name, {})[
+                    short_name
+                ] = datum_id
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    return datum_id_by_epoch_and_short_name
+
+
+def _sync_record_datums_to_database(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+) -> DatumSyncResult | None:
+    """Resolve, log, and optionally write datum rows for a processed record.
+
+    This function intentionally consumes EpochSyncResult. It must not perform
+    independent station/version resolution.
+    """
+
+    if not DATABASE_POLICY.log_datum_plan and not DATABASE_POLICY.write_datums:
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: database datum sync skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        if DATABASE_POLICY.write_datums:
+            raise RuntimeError(
+                f"{record['record_id']}: write_datums=True requires populated "
+                "epoch_sync.epoch_id_by_name. Enable write_epochs=True first."
+            )
+
+        log(
+            f"{record['record_id']}: database datum sync skipped | "
+            "no epoch IDs available in dry-run/no-write mode"
+        )
+
+        return DatumSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            datum_id_by_epoch_and_short_name={},
+            rows_planned=0,
+            rows_written=0,
+            write_datums=bool(DATABASE_POLICY.write_datums),
+        )
+
+    CommonUtils, _TSDataProcessor = _load_database_tools()
+    env_utils = CommonUtils()
+    conn = env_utils.connect_2_tsdb()
+
+    try:
+        definition_id_by_short_name = _query_datum_definition_id_by_short_name(conn)
+
+        datum_df = _build_datum_db_dataframe(
+            record=record,
+            epoch_sync=epoch_sync,
+            definition_id_by_short_name=definition_id_by_short_name,
+        )
+
+        _log_datum_db_plan(record, datum_df)
+
+        datum_id_by_epoch_and_short_name: dict[str, dict[str, int]] = {}
+
+        if DATABASE_POLICY.write_datums:
+            datum_id_by_epoch_and_short_name = _upsert_datums_to_database(
+                conn,
+                datum_df,
+            )
+
+            written_count = sum(
+                len(short_name_ids)
+                for short_name_ids in datum_id_by_epoch_and_short_name.values()
+            )
+
+            if written_count != len(datum_df):
+                raise RuntimeError(
+                    f"{record['record_id']}: datum upsert returned {written_count} "
+                    f"row id(s), but planned {len(datum_df)} datum row(s)."
+                )
+
+            log(
+                f"{record['record_id']}: database datum sync complete | "
+                f"datum_ids={datum_id_by_epoch_and_short_name}"
+            )
+
+        return DatumSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            datum_id_by_epoch_and_short_name=datum_id_by_epoch_and_short_name,
+            rows_planned=int(len(datum_df)),
+            rows_written=sum(
+                len(short_name_ids)
+                for short_name_ids in datum_id_by_epoch_and_short_name.values()
+            ),
+            write_datums=bool(DATABASE_POLICY.write_datums),
+        )
+
+    finally:
+        conn.close()
+
+
+CONSTITUENT_AMPLITUDE_DECIMAL_PLACES = 4
+CONSTITUENT_PHASE_DECIMAL_PLACES = 4
+
+
+def _normalize_constituent_short_name(value: Any) -> str:
+    return str(value).strip().upper()
+
+
+def _normalize_phase_deg(value: Any) -> float:
+    phase = float(value) % 360.0
+    return round(phase, CONSTITUENT_PHASE_DECIMAL_PLACES)
+
+
+def _query_constituent_definition_id_by_short_name(conn) -> dict[str, int]:
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT id, short_name
+        FROM public.constituent_definition
+        """,
+        (),
+    )
+
+    return {
+        _normalize_constituent_short_name(row["short_name"]): int(row["id"])
+        for row in rows
+    }
+
+
+def _build_constituent_db_plan_dataframe(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+
+    if not epoch_sync.epoch_id_by_name:
+        raise RuntimeError(
+            f"{record['record_id']}: cannot build constituent DB rows because "
+            "epoch_sync.epoch_id_by_name is empty. Enable write_epochs=True "
+            "before write_constituents=True."
+        )
+
+    for epoch_summary in record["epochs"]:
+        epoch_name = str(epoch_summary["epoch"]["name"])
+
+        if epoch_name not in epoch_sync.epoch_id_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: epoch {epoch_name!r} is missing from "
+                f"epoch_sync.epoch_id_by_name={epoch_sync.epoch_id_by_name}."
+            )
+
+        epoch_id = int(epoch_sync.epoch_id_by_name[epoch_name])
+        harmonic_path = epoch_summary["harmonic_artifact"]["pickle"]
+        harmonics = load_harmonic_result(harmonic_path)
+
+        names = list(harmonics.constituent)
+        amplitudes = list(harmonics.amplitude_mm)
+        phases = list(harmonics.phase_deg)
+
+        if not (len(names) == len(amplitudes) == len(phases)):
+            raise RuntimeError(
+                f"{record['record_id']} {epoch_name}: harmonic constituent arrays "
+                f"have mismatched lengths: names={len(names)}, "
+                f"amplitudes={len(amplitudes)}, phases={len(phases)}."
+            )
+
+        for constituent_order, (name, amplitude_raw, phase_raw) in enumerate(
+            zip(names, amplitudes, phases),
+            start=1,
+        ):
+            short_name = _normalize_constituent_short_name(name)
+
+            if not short_name:
+                raise RuntimeError(
+                    f"{record['record_id']} {epoch_name}: empty constituent name "
+                    f"at order {constituent_order}."
+                )
+
+            if _is_missing_database_value(amplitude_raw):
+                raise RuntimeError(
+                    f"{record['record_id']} {epoch_name}: missing amplitude for "
+                    f"constituent {short_name}."
+                )
+
+            if _is_missing_database_value(phase_raw):
+                raise RuntimeError(
+                    f"{record['record_id']} {epoch_name}: missing phase for "
+                    f"constituent {short_name}."
+                )
+
+            amplitude_mm = round(
+                float(amplitude_raw),
+                CONSTITUENT_AMPLITUDE_DECIMAL_PLACES,
+            )
+
+            if amplitude_mm < 0:
+                raise RuntimeError(
+                    f"{record['record_id']} {epoch_name}: negative amplitude "
+                    f"for constituent {short_name}: {amplitude_mm}."
+                )
+
+            rows.append(
+                {
+                    "epoch_name": epoch_name,
+                    "definition_short_name": short_name,
+                    "epoch_id": epoch_id,
+                    "time_series_id": int(epoch_sync.time_series_id),
+                    "amplitude_mm": amplitude_mm,
+                    "phase_deg": _normalize_phase_deg(phase_raw),
+                    "constituent_order": int(constituent_order),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def _log_constituent_db_plan(
+    record: dict[str, Any],
+    constituent_df: pd.DataFrame,
+    *,
+    missing_definition_short_names: list[str],
+) -> None:
+    log(
+        f"{record['record_id']}: database constituent sync plan | "
+        f"constituents={len(constituent_df)} | "
+        f"missing_definitions={len(missing_definition_short_names)} | "
+        f"write_constituents={DATABASE_POLICY.write_constituents}"
+    )
+
+    if missing_definition_short_names:
+        log(
+            f"{record['record_id']}: "
+            f"{'CREATE' if DATABASE_POLICY.write_constituents else 'WOULD CREATE'} "
+            f"constituent_definition row(s): "
+            f"{', '.join(missing_definition_short_names)}"
+        )
+
+    if constituent_df.empty:
+        return
+
+    for epoch_name, epoch_df in constituent_df.groupby("epoch_name", sort=True):
+        log(
+            f"{record['record_id']}: "
+            f"{'REPLACE' if DATABASE_POLICY.write_constituents else 'WOULD REPLACE'} "
+            f"{len(epoch_df)} constituent row(s) for epoch {epoch_name}"
+        )
+
+
+def _ensure_constituent_definitions(
+    conn,
+    constituent_df: pd.DataFrame,
+) -> dict[str, int]:
+    """Create missing constituent_definition rows and return all definition ids.
+
+    This intentionally writes only minimal definition metadata. Detailed
+    frequency/species/description metadata can be backfilled later.
+    """
+
+    if constituent_df.empty:
+        return _query_constituent_definition_id_by_short_name(conn)
+
+    display_order_by_short_name = (
+        constituent_df.groupby("definition_short_name")["constituent_order"]
+        .min()
+        .sort_values()
+        .to_dict()
+    )
+
+    with conn.cursor() as cur:
+        for short_name, display_order in display_order_by_short_name.items():
+            cur.execute(
+                """
+                INSERT INTO public.constituent_definition (
+                    short_name,
+                    display_name,
+                    display_order
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (short_name)
+                DO UPDATE SET
+                    display_name = COALESCE(
+                        public.constituent_definition.display_name,
+                        EXCLUDED.display_name
+                    ),
+                    display_order = COALESCE(
+                        public.constituent_definition.display_order,
+                        EXCLUDED.display_order
+                    )
+                """,
+                (
+                    short_name,
+                    short_name,
+                    int(display_order),
+                ),
+            )
+
+    return _query_constituent_definition_id_by_short_name(conn)
+
+
+def _write_constituents_to_database(
+    conn,
+    constituent_df: pd.DataFrame,
+) -> dict[str, dict[str, int]]:
+    """Replace constituent rows for the current epoch ids exactly.
+
+    This uses delete-then-insert because the fitted constituent set and order can
+    change. This prevents stale constituents from lingering under a current
+    epoch_id.
+    """
+
+    constituent_id_by_epoch_and_short_name: dict[str, dict[str, int]] = {}
+
+    try:
+        definition_id_by_short_name = _ensure_constituent_definitions(
+            conn,
+            constituent_df,
+        )
+
+        with conn.cursor() as cur:
+            for (time_series_id, epoch_id), _epoch_df in constituent_df.groupby(
+                ["time_series_id", "epoch_id"],
+                sort=True,
+            ):
+                cur.execute(
+                    """
+                    DELETE FROM public.constituent
+                    WHERE time_series_id = %s
+                      AND epoch_id = %s
+                    """,
+                    (
+                        int(time_series_id),
+                        int(epoch_id),
+                    ),
+                )
+
+            for row in constituent_df.to_dict("records"):
+                short_name = str(row["definition_short_name"])
+
+                if short_name not in definition_id_by_short_name:
+                    raise RuntimeError(
+                        f"Missing constituent_definition id for {short_name!r}."
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO public.constituent (
+                        amplitude_mm,
+                        phase_deg,
+                        constituent_order,
+                        epoch_id,
+                        time_series_id,
+                        definition_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        float(row["amplitude_mm"]),
+                        float(row["phase_deg"]),
+                        int(row["constituent_order"]),
+                        int(row["epoch_id"]),
+                        int(row["time_series_id"]),
+                        int(definition_id_by_short_name[short_name]),
+                    ),
+                )
+
+                constituent_id = int(cur.fetchone()[0])
+                epoch_name = str(row["epoch_name"])
+
+                constituent_id_by_epoch_and_short_name.setdefault(epoch_name, {})[
+                    short_name
+                ] = constituent_id
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    return constituent_id_by_epoch_and_short_name
+
+
+def _sync_record_constituents_to_database(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+) -> ConstituentSyncResult | None:
+    """Resolve, log, and optionally write constituent rows for a record.
+
+    This function intentionally consumes EpochSyncResult. It must not perform
+    independent station/version resolution.
+    """
+
+    if not DATABASE_POLICY.log_constituent_plan and not DATABASE_POLICY.write_constituents:
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: database constituent sync skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        if DATABASE_POLICY.write_constituents:
+            raise RuntimeError(
+                f"{record['record_id']}: write_constituents=True requires populated "
+                "epoch_sync.epoch_id_by_name. Enable write_epochs=True first."
+            )
+
+        log(
+            f"{record['record_id']}: database constituent sync skipped | "
+            "no epoch IDs available in dry-run/no-write mode"
+        )
+
+        return ConstituentSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            constituent_id_by_epoch_and_short_name={},
+            missing_definition_short_names=[],
+            rows_planned=0,
+            rows_written=0,
+            write_constituents=bool(DATABASE_POLICY.write_constituents),
+        )
+
+    constituent_df = _build_constituent_db_plan_dataframe(
+        record=record,
+        epoch_sync=epoch_sync,
+    )
+
+    CommonUtils, _TSDataProcessor = _load_database_tools()
+    env_utils = CommonUtils()
+    conn = env_utils.connect_2_tsdb()
+
+    try:
+        definition_id_by_short_name = _query_constituent_definition_id_by_short_name(conn)
+        planned_short_names = sorted(
+            set(constituent_df["definition_short_name"].astype(str))
+        )
+        missing_definition_short_names = [
+            short_name
+            for short_name in planned_short_names
+            if short_name not in definition_id_by_short_name
+        ]
+
+        _log_constituent_db_plan(
+            record,
+            constituent_df,
+            missing_definition_short_names=missing_definition_short_names,
+        )
+
+        constituent_id_by_epoch_and_short_name: dict[str, dict[str, int]] = {}
+
+        if DATABASE_POLICY.write_constituents:
+            constituent_id_by_epoch_and_short_name = _write_constituents_to_database(
+                conn,
+                constituent_df,
+            )
+
+            written_count = sum(
+                len(short_name_ids)
+                for short_name_ids in constituent_id_by_epoch_and_short_name.values()
+            )
+
+            if written_count != len(constituent_df):
+                raise RuntimeError(
+                    f"{record['record_id']}: constituent write returned "
+                    f"{written_count} row id(s), but planned "
+                    f"{len(constituent_df)} constituent row(s)."
+                )
+
+            log(
+                f"{record['record_id']}: database constituent sync complete | "
+                f"constituent_ids={constituent_id_by_epoch_and_short_name}"
+            )
+
+        return ConstituentSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            constituent_id_by_epoch_and_short_name=constituent_id_by_epoch_and_short_name,
+            missing_definition_short_names=missing_definition_short_names,
+            rows_planned=int(len(constituent_df)),
+            rows_written=sum(
+                len(short_name_ids)
+                for short_name_ids in constituent_id_by_epoch_and_short_name.values()
+            ),
+            write_constituents=bool(DATABASE_POLICY.write_constituents),
+        )
+
+    finally:
+        conn.close()
+
+
+def _database_prediction_value_from_mm(value_mm: Any) -> float:
+    return round(
+        float(value_mm) * DATABASE_POLICY.prediction_value_mm_to_database_meters,
+        DATABASE_POLICY.prediction_value_decimal_places,
+    )
+
+
+def _query_temporal_resolution_id(conn, resolution_code: str) -> int:
+    row = _fetchone_dict(
+        conn,
+        """
+        SELECT id
+        FROM public.temporal_resolution
+        WHERE resolution = %s
+        """,
+        (str(resolution_code),),
+    )
+
+    if row is None:
+        raise RuntimeError(
+            f"No temporal_resolution row found for resolution={resolution_code!r}."
+        )
+
+    return int(row["id"])
+
+
+def _prediction_time_bounds_from_summary(prediction_summary: dict[str, Any]) -> tuple[pd.Timestamp, pd.Timestamp]:
+    return (
+        pd.Timestamp(prediction_summary["start"]),
+        pd.Timestamp(prediction_summary["end"]),
+    )
+
+
+def _to_database_window_timestamp(value: Any) -> pd.Timestamp:
+    """Normalize DB/materialized-view times to UTC-naive pandas timestamps.
+
+    Generated prediction products in this pipeline are timezone-naive. PostgreSQL
+    timestamptz values may come back timezone-aware. Converting aware timestamps
+    to UTC-naive keeps comparisons aligned with the generated UTC-like products.
+    """
+
+    ts = pd.Timestamp(value)
+
+    if ts.tzinfo is not None:
+        return ts.tz_convert(None)
+
+    return ts
+
+
+def _record_quality_short_name_for_prediction_window(
+    epoch_sync: EpochSyncResult,
+) -> str:
+    if epoch_sync.input_basis_code == DATABASE_POLICY.fd_input_basis_code:
+        return DATABASE_POLICY.fd_record_quality_short_name
+
+    if epoch_sync.input_basis_code == DATABASE_POLICY.rq_input_basis_code:
+        return DATABASE_POLICY.rq_record_quality_short_name
+
+    raise RuntimeError(
+        f"Unsupported input_basis_code for prediction window lookup: "
+        f"{epoch_sync.input_basis_code!r}."
+    )
+
+
+def _query_prediction_valid_range(
+    conn,
+    *,
+    time_series_id: int,
+    record_quality_short_name: str,
+    temporal_resolution_code: str,
+) -> dict[str, Any]:
+    """Query the DB-authoritative prediction-valid range for a target.
+
+    For RQ products, this bounds writes to the exact research-quality
+    time_series range. For FD cleanup, this bounds superseded best_available
+    products to their historical operational ranges.
+    """
+
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT
+          r.time_series_id,
+          r.id_from_source,
+          r.station_id,
+          r.record_id,
+          r.priority,
+          r.quality_id,
+          r.quality_level,
+          r.resolution_id,
+          r.date_begin,
+          r.date_end,
+          r.last_update
+        FROM public.date_range_by_time_series_quality r
+        JOIN public.record_quality q
+          ON q.id = r.quality_id
+        JOIN public.temporal_resolution tr
+          ON tr.id = r.resolution_id
+        WHERE r.time_series_id = %s
+          AND lower(q.short_name) = lower(%s)
+          AND tr.resolution = %s
+        ORDER BY r.date_begin, r.date_end, r.priority
+        """,
+        (
+            int(time_series_id),
+            str(record_quality_short_name),
+            str(temporal_resolution_code),
+        ),
+    )
+
+    if not rows:
+        raise RuntimeError(
+            "No prediction-valid range found in "
+            "public.date_range_by_time_series_quality for "
+            f"time_series_id={time_series_id}, "
+            f"record_quality_short_name={record_quality_short_name!r}, "
+            f"temporal_resolution_code={temporal_resolution_code!r}."
+        )
+
+    if len(rows) > 1:
+        raise RuntimeError(
+            "Multiple prediction-valid ranges found in "
+            "public.date_range_by_time_series_quality for "
+            f"time_series_id={time_series_id}, "
+            f"record_quality_short_name={record_quality_short_name!r}, "
+            f"temporal_resolution_code={temporal_resolution_code!r}: {rows}"
+        )
+
+    row = rows[0]
+    row["date_begin"] = _to_database_window_timestamp(row["date_begin"])
+    row["date_end"] = _to_database_window_timestamp(row["date_end"])
+    row["last_update"] = _to_database_window_timestamp(row["last_update"])
+
+    return row
+
+
+def _resolve_record_prediction_db_window(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult | None,
+) -> PredictionDbWindow | None:
+    """Resolve DB metadata needed by tide/high-low prediction writers.
+
+    This should be called once per processed record and passed to both
+    prediction writers. It keeps date_range_by_time_series_quality lookups short
+    and prevents holding a DB connection open during expensive high/low
+    generation.
+    """
+
+    if epoch_sync is None or not epoch_sync.epoch_id_by_name:
+        return None
+
+    with _tsdb_connection() as (conn, _ts_processor):
+        resolution_id = _query_temporal_resolution_id(
+            conn,
+            DATABASE_POLICY.hourly_temporal_resolution_code,
+        )
+
+        if str(record["station_kind"]).upper() == "FD":
+            return PredictionDbWindow(
+                resolution_id=int(resolution_id),
+                temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+                record_quality_short_name=None,
+                date_begin=None,
+                date_end=None,
+                date_range_last_update=None,
+            )
+
+        record_quality_short_name = _record_quality_short_name_for_prediction_window(
+            epoch_sync
+        )
+        valid_range = _query_prediction_valid_range(
+            conn,
+            time_series_id=epoch_sync.time_series_id,
+            record_quality_short_name=record_quality_short_name,
+            temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+        )
+
+        return PredictionDbWindow(
+            resolution_id=int(resolution_id),
+            temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+            record_quality_short_name=record_quality_short_name,
+            date_begin=pd.Timestamp(valid_range["date_begin"]),
+            date_end=pd.Timestamp(valid_range["date_end"]),
+            date_range_last_update=pd.Timestamp(valid_range["last_update"]),
+        )
+
+
+def _allowed_prediction_window_from_db_window(
+    *,
+    generated_start: pd.Timestamp,
+    generated_end: pd.Timestamp,
+    prediction_window: PredictionDbWindow,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Intersect a generated prediction window with a resolved DB-valid window.
+
+    FD/current best_available records have no DB-valid bounds here and return
+    the generated operational window unchanged.
+    """
+
+    if prediction_window.date_begin is None or prediction_window.date_end is None:
+        return pd.Timestamp(generated_start), pd.Timestamp(generated_end)
+
+    return (
+        max(pd.Timestamp(generated_start), pd.Timestamp(prediction_window.date_begin)),
+        min(pd.Timestamp(generated_end), pd.Timestamp(prediction_window.date_end)),
+    )
+
+
+def _allowed_hourly_prediction_window(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    prediction_summary: dict[str, Any],
+    prediction_window: PredictionDbWindow,
+) -> tuple[pd.Timestamp, pd.Timestamp, list[str]]:
+    """Return DB insert window for a generated hourly prediction product.
+
+    FD/best_available current-target products keep the generated long-future
+    operational window.
+
+    RQ products are bounded by the previously resolved rq/hourly
+    date_range_by_time_series_quality window.
+    """
+
+    generated_start, generated_end = _prediction_time_bounds_from_summary(
+        prediction_summary
+    )
+    notes: list[str] = []
+
+    if str(record["station_kind"]).upper() == "FD":
+        return generated_start, generated_end, notes
+
+    allowed_start, allowed_end = _allowed_prediction_window_from_db_window(
+        generated_start=generated_start,
+        generated_end=generated_end,
+        prediction_window=prediction_window,
+    )
+
+    record_quality_short_name = prediction_window.record_quality_short_name or "unknown"
+
+    if allowed_end < allowed_start:
+        notes.append(
+            f"No overlap between generated hourly prediction window "
+            f"{generated_start} to {generated_end} and DB {record_quality_short_name}/"
+            f"{prediction_window.temporal_resolution_code} valid range "
+            f"{prediction_window.date_begin} to {prediction_window.date_end}."
+        )
+    else:
+        notes.append(
+            f"{record_quality_short_name.upper()} hourly prediction bounded by "
+            f"date_range_by_time_series_quality: {prediction_window.date_begin} "
+            f"to {prediction_window.date_end}."
+        )
+
+    return allowed_start, allowed_end, notes
+
+
+def _build_hourly_tide_prediction_db_dataframe(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    prediction_window: PredictionDbWindow,
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]]:
+    if not epoch_sync.epoch_id_by_name:
+        raise RuntimeError(
+            f"{record['record_id']}: cannot build tide_prediction rows because "
+            "epoch_sync.epoch_id_by_name is empty. Enable write_epochs=True "
+            "before write_tide_predictions=True."
+        )
+
+    hourly_frames = record.get("_hourly_prediction_frames") or {}
+    rows: list[pd.DataFrame] = []
+    delete_windows: list[dict[str, Any]] = []
+    notes: list[str] = []
+
+    for prediction_summary in record.get("hourly_predictions") or []:
+        epoch_name = str(prediction_summary["epoch"])
+        prediction_key = str(prediction_summary["prediction_key"])
+
+        if epoch_name not in epoch_sync.epoch_id_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: hourly prediction epoch {epoch_name!r} "
+                f"is missing from epoch_sync.epoch_id_by_name={epoch_sync.epoch_id_by_name}."
+            )
+
+        if prediction_key not in hourly_frames:
+            raise RuntimeError(
+                f"{record['record_id']}: missing hourly prediction frame for "
+                f"prediction_key={prediction_key!r}."
+            )
+
+        generated_start, generated_end = _prediction_time_bounds_from_summary(
+            prediction_summary
+        )
+        allowed_start, allowed_end, window_notes = _allowed_hourly_prediction_window(
+            record=record,
+            epoch_sync=epoch_sync,
+            prediction_summary=prediction_summary,
+            prediction_window=prediction_window,
+        )
+        notes.extend(window_notes)
+
+        epoch_id = int(epoch_sync.epoch_id_by_name[epoch_name])
+
+        # Delete the full generated window, not just the allowed insert window.
+        # This cleans up any earlier accidental long-future writes if the DB
+        # policy later trims the insert window.
+        delete_windows.append(
+            {
+                "time_series_id": int(epoch_sync.time_series_id),
+                "epoch_id": epoch_id,
+                "resolution_id": int(prediction_window.resolution_id),
+                "delete_start": generated_start,
+                "delete_end": generated_end,
+                "insert_start": allowed_start,
+                "insert_end": allowed_end,
+                "epoch_name": epoch_name,
+            }
+        )
+
+        frame = hourly_frames[prediction_key].copy()
+        frame["time"] = pd.to_datetime(frame["time"])
+        frame = frame[
+            (frame["time"] >= allowed_start)
+            & (frame["time"] <= allowed_end)
+        ].copy()
+
+        if frame.empty:
+            notes.append(
+                f"No hourly prediction rows remained after DB window filtering for "
+                f"{record['record_id']} {epoch_name}."
+            )
+            continue
+
+        if "prediction_mm" not in frame.columns:
+            raise RuntimeError(
+                f"{record['record_id']} {epoch_name}: hourly prediction frame "
+                "does not contain prediction_mm."
+            )
+
+        frame = pd.DataFrame(
+            {
+                "time": frame["time"],
+                "value": frame["prediction_mm"].map(_database_prediction_value_from_mm),
+                "epoch_id": epoch_id,
+                "resolution_id": int(prediction_window.resolution_id),
+                "time_series_id": int(epoch_sync.time_series_id),
+                "epoch_name": epoch_name,
+            }
+        )
+
+        rows.append(frame)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "value",
+                "epoch_id",
+                "resolution_id",
+                "time_series_id",
+                "epoch_name",
+            ]
+        ), delete_windows, notes
+
+    return pd.concat(rows, ignore_index=True), delete_windows, notes
+
+
+def _log_tide_prediction_db_plan(
+    record: dict[str, Any],
+    prediction_df: pd.DataFrame,
+    *,
+    delete_windows: list[dict[str, Any]],
+    notes: list[str],
+) -> None:
+    log(
+        f"{record['record_id']}: database tide_prediction sync plan | "
+        f"hourly_rows={len(prediction_df)} | "
+        f"delete_windows={len(delete_windows)} | "
+        f"value_units=meters | "
+        f"write_tide_predictions={DATABASE_POLICY.write_tide_predictions}"
+    )
+
+    for note in notes:
+        log(f"{record['record_id']}: tide_prediction note | {note}")
+
+    for window in delete_windows:
+        log(
+            f"{record['record_id']}: "
+            f"{'REPLACE' if DATABASE_POLICY.write_tide_predictions else 'WOULD REPLACE'} "
+            f"hourly tide_prediction rows for epoch {window['epoch_name']} | "
+            f"delete_window={window['delete_start']} to {window['delete_end']} | "
+            f"insert_window={window['insert_start']} to {window['insert_end']}"
+        )
+
+
+def _delete_tide_prediction_windows(
+    conn,
+    delete_windows: list[dict[str, Any]],
+) -> int:
+    rows_deleted = 0
+
+    with conn.cursor() as cur:
+        for window in delete_windows:
+            cur.execute(
+                """
+                DELETE FROM public.tide_prediction
+                WHERE time_series_id = %s
+                  AND epoch_id = %s
+                  AND resolution_id = %s
+                  AND "time" >= %s
+                  AND "time" <= %s
+                """,
+                (
+                    int(window["time_series_id"]),
+                    int(window["epoch_id"]),
+                    int(window["resolution_id"]),
+                    pd.Timestamp(window["delete_start"]).to_pydatetime(),
+                    pd.Timestamp(window["delete_end"]).to_pydatetime(),
+                ),
+            )
+            rows_deleted += int(cur.rowcount)
+
+    return rows_deleted
+
+
+def _insert_tide_prediction_rows(
+    conn,
+    prediction_df: pd.DataFrame,
+) -> int:
+    if prediction_df.empty:
+        return 0
+
+    rows = [
+        (
+            pd.Timestamp(row["time"]).to_pydatetime(),
+            float(row["value"]),
+            int(row["epoch_id"]),
+            int(row["resolution_id"]),
+            int(row["time_series_id"]),
+        )
+        for row in prediction_df.to_dict("records")
+    ]
+
+    insert_sql = """
+        INSERT INTO public.tide_prediction (
+            "time",
+            value,
+            epoch_id,
+            resolution_id,
+            time_series_id
+        )
+        VALUES %s
+        ON CONFLICT (time_series_id, epoch_id, resolution_id, "time")
+        DO UPDATE SET
+            value = EXCLUDED.value
+    """
+
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            insert_sql,
+            rows,
+            page_size=int(DATABASE_POLICY.prediction_insert_batch_size),
+        )
+
+    return len(rows)
+
+
+def _sync_record_tide_predictions_to_database(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+    prediction_window: PredictionDbWindow | None = None,
+) -> TidePredictionSyncResult | None:
+    """Resolve, log, and optionally write hourly tide_prediction rows.
+
+    This function intentionally consumes EpochSyncResult. It must not perform
+    independent station/version resolution.
+    """
+
+    if (
+        not DATABASE_POLICY.log_tide_prediction_plan
+        and not DATABASE_POLICY.write_tide_predictions
+    ):
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: database tide_prediction sync skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        if DATABASE_POLICY.write_tide_predictions:
+            raise RuntimeError(
+                f"{record['record_id']}: write_tide_predictions=True requires "
+                "populated epoch_sync.epoch_id_by_name. Enable write_epochs=True first."
+            )
+
+        log(
+            f"{record['record_id']}: database tide_prediction sync skipped | "
+            "no epoch IDs available in dry-run/no-write mode"
+        )
+
+        return TidePredictionSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            resolution_id=0,
+            rows_planned=0,
+            rows_deleted=0,
+            rows_written=0,
+            rows_skipped=0,
+            write_tide_predictions=bool(DATABASE_POLICY.write_tide_predictions),
+            notes=["No epoch IDs available."],
+        )
+
+    if prediction_window is None:
+        prediction_window = _resolve_record_prediction_db_window(
+            record=record,
+            epoch_sync=epoch_sync,
+        )
+
+    if prediction_window is None:
+        raise RuntimeError(
+            f"{record['record_id']}: could not resolve prediction DB window."
+        )
+
+    prediction_df, delete_windows, notes = _build_hourly_tide_prediction_db_dataframe(
+        record=record,
+        epoch_sync=epoch_sync,
+        prediction_window=prediction_window,
+    )
+
+    _log_tide_prediction_db_plan(
+        record,
+        prediction_df,
+        delete_windows=delete_windows,
+        notes=notes,
+    )
+
+    rows_deleted = 0
+    rows_written = 0
+
+    if DATABASE_POLICY.write_tide_predictions:
+        with _tsdb_connection() as (conn, _ts_processor):
+            try:
+                rows_deleted = _delete_tide_prediction_windows(
+                    conn,
+                    delete_windows,
+                )
+                rows_written = _insert_tide_prediction_rows(
+                    conn,
+                    prediction_df,
+                )
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+        log(
+            f"{record['record_id']}: database tide_prediction sync complete | "
+            f"rows_deleted={rows_deleted} | rows_written={rows_written}"
+        )
+
+    return TidePredictionSyncResult(
+        record_id=str(record["record_id"]),
+        station_kind=str(record["station_kind"]),
+        time_series_id=int(epoch_sync.time_series_id),
+        id_from_source=str(epoch_sync.id_from_source),
+        input_basis_code=str(epoch_sync.input_basis_code),
+        input_basis_id=int(epoch_sync.input_basis_id),
+        resolution_id=int(prediction_window.resolution_id),
+        rows_planned=int(len(prediction_df)),
+        rows_deleted=int(rows_deleted),
+        rows_written=int(rows_written),
+        rows_skipped=0,
+        write_tide_predictions=bool(DATABASE_POLICY.write_tide_predictions),
+        notes=notes,
+    )
+
+
+def _build_high_low_prediction_db_dataframe(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    prediction_window: PredictionDbWindow,
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]]:
+    notes: list[str] = []
+
+    if not epoch_sync.epoch_id_by_name:
+        raise RuntimeError(
+            f"{record['record_id']}: cannot build high_low_prediction rows because "
+            "epoch_sync.epoch_id_by_name is empty. Enable write_epochs=True "
+            "before write_high_low_predictions=True."
+        )
+
+    station_kind = str(record["station_kind"]).upper()
+    high_low_frames = record.get("_minute_highlow_frames") or {}
+    rows: list[pd.DataFrame] = []
+    delete_windows: list[dict[str, Any]] = []
+
+    epoch_summary_by_name = {
+        str(epoch_summary["epoch"]["name"]): epoch_summary
+        for epoch_summary in record.get("epochs") or []
+    }
+
+    if station_kind == "RQ":
+        prediction_summaries = record.get("hourly_predictions") or []
+
+        if not prediction_summaries:
+            notes.append(
+                "No saved hourly prediction products available for RQ high/low DB generation."
+            )
+
+    else:
+        prediction_summaries = record.get("minute_highlow_predictions") or []
+
+        if not prediction_summaries:
+            notes.append("No generated high/low prediction products for this record.")
+
+    for prediction_summary in prediction_summaries:
+        epoch_name = str(prediction_summary["epoch"])
+        prediction_key = str(prediction_summary["prediction_key"])
+
+        if epoch_name not in epoch_sync.epoch_id_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: high/low prediction epoch {epoch_name!r} "
+                f"is missing from epoch_sync.epoch_id_by_name={epoch_sync.epoch_id_by_name}."
+            )
+
+        if epoch_name not in epoch_summary_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: high/low prediction epoch {epoch_name!r} "
+                "is missing from record['epochs']."
+            )
+
+        generated_start = pd.Timestamp(prediction_summary["start"])
+        generated_end = pd.Timestamp(prediction_summary["end"])
+
+        allowed_start = generated_start
+        allowed_end = generated_end
+        delete_start = generated_start
+        delete_end = generated_end
+
+        if station_kind == "RQ":
+            allowed_start, allowed_end = _allowed_prediction_window_from_db_window(
+                generated_start=generated_start,
+                generated_end=generated_end,
+                prediction_window=prediction_window,
+            )
+
+            record_quality_short_name = (
+                prediction_window.record_quality_short_name or "unknown"
+            )
+
+            if allowed_end < allowed_start:
+                notes.append(
+                    f"No overlap between generated high/low source window "
+                    f"{generated_start} to {generated_end} and DB "
+                    f"{record_quality_short_name}/"
+                    f"{prediction_window.temporal_resolution_code} "
+                    f"valid range {prediction_window.date_begin} to "
+                    f"{prediction_window.date_end}."
+                )
+                continue
+
+            # If this RQ record was ever accidentally written with the generated
+            # long-future/hourly window or an operational high-low window, delete
+            # the union of that generated window and the DB-authoritative RQ
+            # window, then reinsert only bounded RQ rows.
+            delete_start = min(generated_start, allowed_start)
+            delete_end = max(generated_end, allowed_end)
+
+            notes.append(
+                f"{record_quality_short_name.upper()} high/low prediction generated "
+                f"for DB write from date_range_by_time_series_quality: "
+                f"{allowed_start} to {allowed_end}."
+            )
+
+            harmonics = load_harmonic_result(
+                epoch_summary_by_name[epoch_name]["harmonic_artifact"]["pickle"]
+            )
+
+            try:
+                frame = predict_minute_high_low(
+                    harmonics,
+                    start=allowed_start,
+                    end=allowed_end,
+                )
+            finally:
+                del harmonics
+                gc.collect()
+
+        else:
+            # FD/current best_available high-low keeps the generated operational
+            # high-low window. It is intentionally not bounded by the FD matview
+            # date_end/tail while it is the current resolved best_available target.
+            if prediction_key not in high_low_frames:
+                raise RuntimeError(
+                    f"{record['record_id']}: missing high/low prediction frame for "
+                    f"prediction_key={prediction_key!r}."
+                )
+
+            frame = high_low_frames[prediction_key].copy()
+
+        epoch_id = int(epoch_sync.epoch_id_by_name[epoch_name])
+
+        delete_windows.append(
+            {
+                "time_series_id": int(epoch_sync.time_series_id),
+                "epoch_id": epoch_id,
+                "delete_start": delete_start,
+                "delete_end": delete_end,
+                "insert_start": allowed_start,
+                "insert_end": allowed_end,
+                "epoch_name": epoch_name,
+            }
+        )
+
+        frame["time"] = pd.to_datetime(frame["time"])
+        frame = frame[
+            (frame["time"] >= allowed_start)
+            & (frame["time"] <= allowed_end)
+        ].copy()
+
+        if frame.empty:
+            notes.append(
+                f"No high/low prediction rows remained after DB window filtering for "
+                f"{record['record_id']} {epoch_name}."
+            )
+            continue
+
+        required_columns = {"time", "height_mm", "type"}
+
+        if not required_columns.issubset(set(frame.columns)):
+            raise RuntimeError(
+                f"{record['record_id']} {epoch_name}: high/low frame missing "
+                f"required columns {required_columns}; columns={list(frame.columns)}."
+            )
+
+        frame = pd.DataFrame(
+            {
+                "time": frame["time"],
+                "value": frame["height_mm"].map(_database_prediction_value_from_mm),
+                "tide_type": frame["type"].astype(str),
+                "epoch_id": epoch_id,
+                "time_series_id": int(epoch_sync.time_series_id),
+                "epoch_name": epoch_name,
+            }
+        )
+
+        rows.append(frame)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "value",
+                "tide_type",
+                "epoch_id",
+                "time_series_id",
+                "epoch_name",
+            ]
+        ), delete_windows, notes
+
+    return pd.concat(rows, ignore_index=True), delete_windows, notes
+
+
+def _log_high_low_prediction_db_plan(
+    record: dict[str, Any],
+    high_low_df: pd.DataFrame,
+    *,
+    delete_windows: list[dict[str, Any]],
+    notes: list[str],
+) -> None:
+    log(
+        f"{record['record_id']}: database high_low_prediction sync plan | "
+        f"rows={len(high_low_df)} | "
+        f"delete_windows={len(delete_windows)} | "
+        f"value_units=meters | "
+        f"write_high_low_predictions={DATABASE_POLICY.write_high_low_predictions}"
+    )
+
+    for note in notes:
+        log(f"{record['record_id']}: high_low_prediction note | {note}")
+
+    for window in delete_windows:
+        log(
+            f"{record['record_id']}: "
+            f"{'REPLACE' if DATABASE_POLICY.write_high_low_predictions else 'WOULD REPLACE'} "
+            f"high_low_prediction rows for epoch {window['epoch_name']} | "
+            f"delete_window={window['delete_start']} to {window['delete_end']} | "
+            f"insert_window={window.get('insert_start', window['delete_start'])} "
+            f"to {window.get('insert_end', window['delete_end'])}"
+        )
+
+
+def _delete_high_low_prediction_windows(
+    conn,
+    delete_windows: list[dict[str, Any]],
+) -> int:
+    rows_deleted = 0
+
+    with conn.cursor() as cur:
+        for window in delete_windows:
+            cur.execute(
+                """
+                DELETE FROM public.high_low_prediction
+                WHERE time_series_id = %s
+                  AND epoch_id = %s
+                  AND "time" >= %s
+                  AND "time" <= %s
+                """,
+                (
+                    int(window["time_series_id"]),
+                    int(window["epoch_id"]),
+                    pd.Timestamp(window["delete_start"]).to_pydatetime(),
+                    pd.Timestamp(window["delete_end"]).to_pydatetime(),
+                ),
+            )
+            rows_deleted += int(cur.rowcount)
+
+    return rows_deleted
+
+
+def _insert_high_low_prediction_rows(
+    conn,
+    high_low_df: pd.DataFrame,
+) -> int:
+    if high_low_df.empty:
+        return 0
+
+    rows = [
+        (
+            pd.Timestamp(row["time"]).to_pydatetime(),
+            float(row["value"]),
+            str(row["tide_type"]),
+            int(row["epoch_id"]),
+            int(row["time_series_id"]),
+        )
+        for row in high_low_df.to_dict("records")
+    ]
+
+    insert_sql = """
+        INSERT INTO public.high_low_prediction (
+            "time",
+            value,
+            tide_type,
+            epoch_id,
+            time_series_id
+        )
+        VALUES %s
+        ON CONFLICT (time_series_id, epoch_id, "time")
+        DO UPDATE SET
+            value = EXCLUDED.value,
+            tide_type = EXCLUDED.tide_type
+    """
+
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            insert_sql,
+            rows,
+            page_size=int(DATABASE_POLICY.prediction_insert_batch_size),
+        )
+
+    return len(rows)
+
+
+def _sync_record_high_low_predictions_to_database(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+    prediction_window: PredictionDbWindow | None = None,
+) -> HighLowPredictionSyncResult | None:
+    """Resolve, log, and optionally write high_low_prediction rows.
+
+    This function intentionally consumes EpochSyncResult. It must not perform
+    independent station/version resolution.
+    """
+
+    if (
+        not DATABASE_POLICY.log_high_low_prediction_plan
+        and not DATABASE_POLICY.write_high_low_predictions
+    ):
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: database high_low_prediction sync skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        if DATABASE_POLICY.write_high_low_predictions:
+            raise RuntimeError(
+                f"{record['record_id']}: write_high_low_predictions=True requires "
+                "populated epoch_sync.epoch_id_by_name. Enable write_epochs=True first."
+            )
+
+        log(
+            f"{record['record_id']}: database high_low_prediction sync skipped | "
+            "no epoch IDs available in dry-run/no-write mode"
+        )
+
+        return HighLowPredictionSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            rows_planned=0,
+            rows_deleted=0,
+            rows_written=0,
+            rows_skipped=0,
+            write_high_low_predictions=bool(DATABASE_POLICY.write_high_low_predictions),
+            notes=["No epoch IDs available."],
+        )
+
+    if prediction_window is None:
+        prediction_window = _resolve_record_prediction_db_window(
+            record=record,
+            epoch_sync=epoch_sync,
+        )
+
+    if prediction_window is None:
+        raise RuntimeError(
+            f"{record['record_id']}: could not resolve prediction DB window."
+        )
+
+    high_low_df, delete_windows, notes = _build_high_low_prediction_db_dataframe(
+        record=record,
+        epoch_sync=epoch_sync,
+        prediction_window=prediction_window,
+    )
+
+    _log_high_low_prediction_db_plan(
+        record,
+        high_low_df,
+        delete_windows=delete_windows,
+        notes=notes,
+    )
+
+    rows_deleted = 0
+    rows_written = 0
+
+    if DATABASE_POLICY.write_high_low_predictions:
+        with _tsdb_connection() as (conn, _ts_processor):
+            try:
+                rows_deleted = _delete_high_low_prediction_windows(
+                    conn,
+                    delete_windows,
+                )
+                rows_written = _insert_high_low_prediction_rows(
+                    conn,
+                    high_low_df,
+                )
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+        log(
+            f"{record['record_id']}: database high_low_prediction sync complete | "
+            f"rows_deleted={rows_deleted} | rows_written={rows_written}"
+        )
+
+    return HighLowPredictionSyncResult(
+        record_id=str(record["record_id"]),
+        station_kind=str(record["station_kind"]),
+        time_series_id=int(epoch_sync.time_series_id),
+        id_from_source=str(epoch_sync.id_from_source),
+        input_basis_code=str(epoch_sync.input_basis_code),
+        input_basis_id=int(epoch_sync.input_basis_id),
+        rows_planned=int(len(high_low_df)),
+        rows_deleted=int(rows_deleted),
+        rows_written=int(rows_written),
+        rows_skipped=0,
+        write_high_low_predictions=bool(DATABASE_POLICY.write_high_low_predictions),
+        notes=notes,
+    )
+
+
+def _query_time_series_id_by_id_from_source(conn, id_from_source: str) -> int:
+    row = _fetchone_dict(
+        conn,
+        """
+        SELECT id
+        FROM public.time_series
+        WHERE upper(id_from_source) = upper(%s)
+        """,
+        (str(id_from_source),),
+    )
+
+    if row is None:
+        raise RuntimeError(
+            f"No time_series row found for id_from_source={id_from_source!r}."
+        )
+
+    return int(row["id"])
+
+
+def _run_prediction_cutover_cleanup() -> None:
+    """Explicit best_available D->E cleanup.
+
+    This never guesses the cutover boundary. It only executes configured cleanup
+    entries in DATABASE_POLICY.prediction_cutover_cleanups.
+
+    Each cleanup deletes old best_available prediction rows at/after cutover
+    for the old time_series row. It preserves epochs, datums, constituents, and
+    historical/bounded predictions before the cutover.
+    """
+
+    cleanups = tuple(DATABASE_POLICY.prediction_cutover_cleanups)
+
+    if not cleanups:
+        return
+
+    if (
+        not DATABASE_POLICY.log_prediction_cutover_cleanup_plan
+        and not DATABASE_POLICY.write_prediction_cutover_cleanup
+    ):
+        return
+
+    CommonUtils, TSDataProcessor = _load_database_tools()
+    env_utils = CommonUtils()
+    ts_processor = TSDataProcessor()
+    conn = env_utils.connect_2_tsdb()
+
+    try:
+        best_available_input_basis_id = ts_processor.query_prediction_input_basis_id_tsdb(
+            conn,
+            DATABASE_POLICY.fd_input_basis_code,
+        )
+
+        for old_id_from_source, new_id_from_source, cutover_time_raw in cleanups:
+            old_time_series_id = _query_time_series_id_by_id_from_source(
+                conn,
+                old_id_from_source,
+            )
+            new_time_series_id = _query_time_series_id_by_id_from_source(
+                conn,
+                new_id_from_source,
+            )
+            cutover_time = pd.Timestamp(cutover_time_raw)
+
+            log(
+                "prediction cutover cleanup plan | "
+                f"old={old_id_from_source} time_series_id={old_time_series_id} | "
+                f"new={new_id_from_source} time_series_id={new_time_series_id} | "
+                f"cutover_time={cutover_time} | "
+                f"write_cleanup={DATABASE_POLICY.write_prediction_cutover_cleanup}"
+            )
+
+            if not DATABASE_POLICY.write_prediction_cutover_cleanup:
+                continue
+
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        DELETE FROM public.tide_prediction p
+                        USING public.epoch e
+                        WHERE p.epoch_id = e.id
+                          AND p.time_series_id = %s
+                          AND e.time_series_id = %s
+                          AND e.input_basis_id = %s
+                          AND p."time" >= %s
+                        """,
+                        (
+                            int(old_time_series_id),
+                            int(old_time_series_id),
+                            int(best_available_input_basis_id),
+                            cutover_time.to_pydatetime(),
+                        ),
+                    )
+                    tide_rows_deleted = int(cur.rowcount)
+
+                    cur.execute(
+                        """
+                        DELETE FROM public.high_low_prediction p
+                        USING public.epoch e
+                        WHERE p.epoch_id = e.id
+                          AND p.time_series_id = %s
+                          AND e.time_series_id = %s
+                          AND e.input_basis_id = %s
+                          AND p."time" >= %s
+                        """,
+                        (
+                            int(old_time_series_id),
+                            int(old_time_series_id),
+                            int(best_available_input_basis_id),
+                            cutover_time.to_pydatetime(),
+                        ),
+                    )
+                    high_low_rows_deleted = int(cur.rowcount)
+
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+            log(
+                "prediction cutover cleanup complete | "
+                f"old={old_id_from_source} | "
+                f"tide_prediction_rows_deleted={tide_rows_deleted} | "
+                f"high_low_prediction_rows_deleted={high_low_rows_deleted}"
+            )
+
+    finally:
+        conn.close()
+
+
+def _query_best_available_date_range_rows_for_current_target(
+    conn,
+    *,
+    current_time_series_id: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[str]]:
+    """Return FD/hourly date-range rows for the current target's station/priority."""
+
+    notes: list[str] = []
+
+    current_row = _fetchone_dict(
+        conn,
+        """
+        SELECT
+          r.time_series_id,
+          r.id_from_source,
+          r.station_id,
+          r.record_id,
+          r.priority,
+          r.date_begin,
+          r.date_end,
+          r.last_update
+        FROM public.date_range_by_time_series_quality r
+        JOIN public.record_quality q
+          ON q.id = r.quality_id
+        JOIN public.temporal_resolution tr
+          ON tr.id = r.resolution_id
+        WHERE r.time_series_id = %s
+          AND lower(q.short_name) = lower(%s)
+          AND tr.resolution = %s
+        ORDER BY r.date_begin
+        LIMIT 1
+        """,
+        (
+            int(current_time_series_id),
+            DATABASE_POLICY.fd_record_quality_short_name,
+            DATABASE_POLICY.hourly_temporal_resolution_code,
+        ),
+    )
+
+    if current_row is None:
+        notes.append(
+            "Current FD target was not found in "
+            "date_range_by_time_series_quality for fd/hourly; "
+            "automatic cleanup skipped."
+        )
+        return [], None, notes
+
+    current_row["date_begin"] = _to_database_window_timestamp(current_row["date_begin"])
+    current_row["date_end"] = _to_database_window_timestamp(current_row["date_end"])
+    current_row["last_update"] = _to_database_window_timestamp(current_row["last_update"])
+
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT
+          r.time_series_id,
+          r.id_from_source,
+          r.station_id,
+          r.record_id,
+          r.priority,
+          r.date_begin,
+          r.date_end,
+          r.last_update
+        FROM public.date_range_by_time_series_quality r
+        JOIN public.record_quality q
+          ON q.id = r.quality_id
+        JOIN public.temporal_resolution tr
+          ON tr.id = r.resolution_id
+        WHERE r.station_id = %s
+          AND r.priority = %s
+          AND lower(q.short_name) = lower(%s)
+          AND tr.resolution = %s
+        ORDER BY r.date_begin, r.date_end, r.time_series_id
+        """,
+        (
+            current_row["station_id"],
+            current_row["priority"],
+            DATABASE_POLICY.fd_record_quality_short_name,
+            DATABASE_POLICY.hourly_temporal_resolution_code,
+        ),
+    )
+
+    for row in rows:
+        row["date_begin"] = _to_database_window_timestamp(row["date_begin"])
+        row["date_end"] = _to_database_window_timestamp(row["date_end"])
+        row["last_update"] = _to_database_window_timestamp(row["last_update"])
+
+    return rows, current_row, notes
+
+
+def _build_best_available_prediction_cleanup_actions(
+    *,
+    current_time_series_id: int,
+    current_id_from_source: str,
+    range_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build cleanup actions for FD targets superseded by the current target."""
+
+    notes: list[str] = []
+
+    if not range_rows:
+        return [], notes
+
+    current_indexes = [
+        idx
+        for idx, row in enumerate(range_rows)
+        if int(row["time_series_id"]) == int(current_time_series_id)
+    ]
+
+    if not current_indexes:
+        notes.append(
+            f"Current target {current_id_from_source} / time_series_id="
+            f"{current_time_series_id} was not found among FD/hourly range rows; "
+            "automatic cleanup skipped."
+        )
+        return [], notes
+
+    if len(current_indexes) > 1:
+        notes.append(
+            f"Current target {current_id_from_source} appeared multiple times in "
+            "FD/hourly range rows; automatic cleanup skipped."
+        )
+        return [], notes
+
+    current_index = current_indexes[0]
+
+    if current_index < len(range_rows) - 1:
+        future_rows = range_rows[current_index + 1 :]
+        notes.append(
+            "FD/hourly rows exist after the currently resolved target. "
+            "They will not be treated as current until the FD resolver maps the "
+            "unversioned source to them: "
+            + ", ".join(str(row["id_from_source"]) for row in future_rows)
+        )
+
+    actions: list[dict[str, Any]] = []
+
+    for row in range_rows[:current_index]:
+        valid_start = pd.Timestamp(row["date_begin"])
+        valid_end = pd.Timestamp(row["date_end"])
+
+        if valid_end < valid_start:
+            raise RuntimeError(
+                "Invalid FD date range from date_range_by_time_series_quality: "
+                f"id_from_source={row['id_from_source']}, "
+                f"date_begin={valid_start}, date_end={valid_end}."
+            )
+
+        actions.append(
+            {
+                "time_series_id": int(row["time_series_id"]),
+                "id_from_source": str(row["id_from_source"]),
+                "valid_start": valid_start,
+                "valid_end": valid_end,
+                "date_range_last_update": pd.Timestamp(row["last_update"]),
+            }
+        )
+
+    return actions, notes
+
+
+def _delete_predictions_outside_best_available_windows(
+    conn,
+    *,
+    actions: list[dict[str, Any]],
+    best_available_input_basis_id: int,
+    hourly_resolution_id: int,
+) -> tuple[int, int]:
+    """Delete stale superseded best_available prediction rows.
+
+    For superseded BA targets, keep only rows attached to the primary prediction
+    basis epoch and only inside the DB-authoritative FD valid window.
+    """
+
+    tide_prediction_rows_deleted = 0
+    high_low_prediction_rows_deleted = 0
+
+    with conn.cursor() as cur:
+        for action in actions:
+            old_time_series_id = int(action["time_series_id"])
+            valid_start = pd.Timestamp(action["valid_start"]).to_pydatetime()
+            valid_end = pd.Timestamp(action["valid_end"]).to_pydatetime()
+
+            # 1. Delete superseded BA hourly tide predictions outside the
+            # DB-authoritative FD valid window.
+            cur.execute(
+                """
+                DELETE FROM public.tide_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND p.resolution_id = %s
+                  AND (
+                    p."time" < %s
+                    OR p."time" > %s
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                    int(hourly_resolution_id),
+                    valid_start,
+                    valid_end,
+                ),
+            )
+            tide_prediction_rows_deleted += int(cur.rowcount)
+
+            # 2. Delete superseded BA hourly tide predictions attached to stale
+            # non-primary / non-prediction-basis epochs, even if they fall inside
+            # the valid FD window.
+            cur.execute(
+                """
+                DELETE FROM public.tide_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND p.resolution_id = %s
+                  AND NOT (
+                    COALESCE(e.primary, false) = true
+                    AND COALESCE(e.is_prediction_basis, false) = true
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                    int(hourly_resolution_id),
+                ),
+            )
+            tide_prediction_rows_deleted += int(cur.rowcount)
+
+            # 3. Delete superseded BA high/low predictions outside the
+            # DB-authoritative FD valid window.
+            cur.execute(
+                """
+                DELETE FROM public.high_low_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND (
+                    p."time" < %s
+                    OR p."time" > %s
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                    valid_start,
+                    valid_end,
+                ),
+            )
+            high_low_prediction_rows_deleted += int(cur.rowcount)
+
+            # 4. Delete superseded BA high/low predictions attached to stale
+            # non-primary / non-prediction-basis epochs, even if they fall inside
+            # the valid FD window.
+            cur.execute(
+                """
+                DELETE FROM public.high_low_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND NOT (
+                    COALESCE(e.primary, false) = true
+                    AND COALESCE(e.is_prediction_basis, false) = true
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                ),
+            )
+            high_low_prediction_rows_deleted += int(cur.rowcount)
+
+    return tide_prediction_rows_deleted, high_low_prediction_rows_deleted
+
+
+def _run_auto_best_available_prediction_cleanup(
+    *,
+    fd_epoch_sync: EpochSyncResult | None,
+) -> PredictionAutoCleanupResult | None:
+    """Automatically trim superseded FD/best_available predictions."""
+
+    if (
+        not DATABASE_POLICY.auto_cleanup_superseded_best_available_predictions
+        and not DATABASE_POLICY.write_prediction_auto_cleanup
+    ):
+        return None
+
+    if fd_epoch_sync is None:
+        log("prediction auto cleanup skipped | no FD epoch sync result available")
+        return None
+
+    if fd_epoch_sync.input_basis_code != DATABASE_POLICY.fd_input_basis_code:
+        log(
+            "prediction auto cleanup skipped | FD epoch sync result did not use "
+            f"input_basis={DATABASE_POLICY.fd_input_basis_code}"
+        )
+        return None
+
+    with _tsdb_connection() as (conn, ts_processor):
+        best_available_input_basis_id = ts_processor.query_prediction_input_basis_id_tsdb(
+            conn,
+            DATABASE_POLICY.fd_input_basis_code,
+        )
+        hourly_resolution_id = _query_temporal_resolution_id(
+            conn,
+            DATABASE_POLICY.hourly_temporal_resolution_code,
+        )
+
+        range_rows, current_range_row, notes = (
+            _query_best_available_date_range_rows_for_current_target(
+                conn,
+                current_time_series_id=fd_epoch_sync.time_series_id,
+            )
+        )
+
+        if current_range_row is None:
+            return PredictionAutoCleanupResult(
+                current_time_series_id=int(fd_epoch_sync.time_series_id),
+                current_id_from_source=str(fd_epoch_sync.id_from_source),
+                fd_quality_short_name=DATABASE_POLICY.fd_record_quality_short_name,
+                temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+                actions=[],
+                tide_prediction_rows_deleted=0,
+                high_low_prediction_rows_deleted=0,
+                write_cleanup=bool(DATABASE_POLICY.write_prediction_auto_cleanup),
+                notes=notes,
+            )
+
+        actions, action_notes = _build_best_available_prediction_cleanup_actions(
+            current_time_series_id=fd_epoch_sync.time_series_id,
+            current_id_from_source=fd_epoch_sync.id_from_source,
+            range_rows=range_rows,
+        )
+        notes.extend(action_notes)
+
+        if DATABASE_POLICY.log_prediction_auto_cleanup_plan:
+            log(
+                "prediction auto cleanup plan | "
+                f"current={fd_epoch_sync.id_from_source} "
+                f"time_series_id={fd_epoch_sync.time_series_id} | "
+                f"actions={len(actions)} | "
+                f"write_cleanup={DATABASE_POLICY.write_prediction_auto_cleanup}"
+            )
+
+            for note in notes:
+                log(f"prediction auto cleanup note | {note}")
+
+            for action in actions:
+                log(
+                    "prediction auto cleanup action | "
+                    f"id_from_source={action['id_from_source']} | "
+                    f"time_series_id={action['time_series_id']} | "
+                    f"keep_window={action['valid_start']} to {action['valid_end']} | "
+                    f"date_range_last_update={action['date_range_last_update']}"
+                )
+
+        tide_rows_deleted = 0
+        high_low_rows_deleted = 0
+
+        if DATABASE_POLICY.write_prediction_auto_cleanup and actions:
+            try:
+                tide_rows_deleted, high_low_rows_deleted = (
+                    _delete_predictions_outside_best_available_windows(
+                        conn,
+                        actions=actions,
+                        best_available_input_basis_id=best_available_input_basis_id,
+                        hourly_resolution_id=hourly_resolution_id,
+                    )
+                )
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+            log(
+                "prediction auto cleanup complete | "
+                f"tide_prediction_rows_deleted={tide_rows_deleted} | "
+                f"high_low_prediction_rows_deleted={high_low_rows_deleted}"
+            )
+
+        return PredictionAutoCleanupResult(
+            current_time_series_id=int(fd_epoch_sync.time_series_id),
+            current_id_from_source=str(fd_epoch_sync.id_from_source),
+            fd_quality_short_name=DATABASE_POLICY.fd_record_quality_short_name,
+            temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
+            actions=actions,
+            tide_prediction_rows_deleted=int(tide_rows_deleted),
+            high_low_prediction_rows_deleted=int(high_low_rows_deleted),
+            write_cleanup=bool(DATABASE_POLICY.write_prediction_auto_cleanup),
+            notes=notes,
+        )
+
+
 def _resolve_station_ids(value: str) -> list[str]:
     value = str(value).strip()
     if value.lower() == "all":
@@ -876,6 +3417,8 @@ def _run_record(
     df = clean_hourly_dataframe(raw[["time", "sea_level"]])
     valid_rows = int(df["sea_level"].notna().sum())
     log(f"{record_id}: loaded {len(df)} hourly rows ({valid_rows} valid)")
+    observation_start = pd.Timestamp(df["time"].min())
+    observation_end = pd.Timestamp(df["time"].max())
     epochs = select_epochs(df)
     if not epochs:
         raise RuntimeError(f"No qualifying epochs found for {record_id}")
@@ -1124,6 +3667,8 @@ def _run_record(
         "station_name": station_name,
         "station_kind": station_kind,
         "netcdf": str(nc_path),
+        "observation_start": observation_start,
+        "observation_end": observation_end,
         "harmonic_artifacts": harmonic_artifacts,
         "prediction_basis_epoch": prediction_plan.basis_epoch,
         "prediction_scope": prediction_plan.prediction_scope,
@@ -1152,6 +3697,10 @@ def _run_record(
         "update_cycle_months": prediction_plan.update_cycle_months,
         "update_cycle_reason": prediction_plan.update_cycle_reason,
         "epochs": epoch_summaries,
+        # Private runtime-only payloads for DB writers. These must be removed before
+        # summary.json is written.
+        "_hourly_prediction_frames": hourly_predictions,
+        "_minute_highlow_frames": minute_highlow_by_epoch,
     }
 
 
@@ -1178,25 +3727,182 @@ def _run_station(station_id: str) -> None:
     summary = {
         "station_id": station_id,
         "records": [],
+        "skipped_records": [],
         "source_reconciliation": None if reconciliation is None else asdict(reconciliation),
     }
 
-    fd_record = _run_record(station_id, "FD", output_root)
-    fd_epoch_sync = _sync_record_epochs_to_database(
-        fd_record,
-        last_update=run_last_update,
-    )
-    fd_record["database_sync"] = None if fd_epoch_sync is None else asdict(fd_epoch_sync)
-    summary["records"].append(fd_record)
+    processed_any_record = False
+    fd_epoch_sync: EpochSyncResult | None = None
+
+    try:
+        fd_record = _run_record(station_id, "FD", output_root)
+        fd_epoch_sync = _sync_record_epochs_to_database(
+            fd_record,
+            last_update=run_last_update,
+        )
+        fd_record["database_sync"] = None if fd_epoch_sync is None else asdict(fd_epoch_sync)
+
+        fd_datum_sync = _sync_record_datums_to_database(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+        )
+        fd_record["database_datum_sync"] = (
+            None if fd_datum_sync is None else asdict(fd_datum_sync)
+        )
+
+        fd_constituent_sync = _sync_record_constituents_to_database(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+        )
+        fd_record["database_constituent_sync"] = (
+            None if fd_constituent_sync is None else asdict(fd_constituent_sync)
+        )
+
+        fd_prediction_window = _resolve_record_prediction_db_window(
+            record=fd_record,
+            epoch_sync=fd_epoch_sync,
+        )
+
+        fd_tide_prediction_sync = _sync_record_tide_predictions_to_database(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+            prediction_window=fd_prediction_window,
+        )
+        fd_record["database_tide_prediction_sync"] = (
+            None if fd_tide_prediction_sync is None else asdict(fd_tide_prediction_sync)
+        )
+
+        fd_high_low_prediction_sync = _sync_record_high_low_predictions_to_database(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+            prediction_window=fd_prediction_window,
+        )
+        fd_record["database_high_low_prediction_sync"] = (
+            None if fd_high_low_prediction_sync is None else asdict(fd_high_low_prediction_sync)
+        )
+
+        fd_record.pop("_hourly_prediction_frames", None)
+        fd_record.pop("_minute_highlow_frames", None)
+
+        summary["records"].append(fd_record)
+        processed_any_record = True
+
+    except Exception as exc:
+        if DATABASE_POLICY.require_fd_record or DATABASE_POLICY.reconciliation_mode == "strict":
+            raise
+
+        log(
+            f"Station {station_id}: FD/best_available record skipped in warn mode | "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        summary["skipped_records"].append(
+            {
+                "record_id": station_id,
+                "station_kind": "FD",
+                "reason": "FD/best_available record unavailable or not writable in warn mode.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
 
     for version in rq_versions_for_run:
-        rq_record = _run_record(station_id, "RQ", output_root, version=version)
+        rq_record_id = f"{station_id}{str(version).lower()}"
+
+        try:
+            rq_record = _run_record(station_id, "RQ", output_root, version=version)
+
+        except ErddapNoRowsError as exc:
+            if DATABASE_POLICY.reconciliation_mode == "strict":
+                raise
+
+            log(
+                f"Station {station_id}: RQ record {rq_record_id} skipped in warn mode | "
+                f"no hourly RQ rows available from ERDDAP for version {version}: {exc}"
+            )
+
+            summary["skipped_records"].append(
+                {
+                    "record_id": rq_record_id,
+                    "station_kind": "RQ",
+                    "version": str(version).upper(),
+                    "reason": (
+                        "RQ metadata/DB inventory listed this version, but no hourly "
+                        "research-quality source rows were available from ERDDAP."
+                    ),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+
+            continue
+
         rq_epoch_sync = _sync_record_epochs_to_database(
             rq_record,
             last_update=run_last_update,
         )
         rq_record["database_sync"] = None if rq_epoch_sync is None else asdict(rq_epoch_sync)
+
+        rq_datum_sync = _sync_record_datums_to_database(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+        )
+        rq_record["database_datum_sync"] = (
+            None if rq_datum_sync is None else asdict(rq_datum_sync)
+        )
+
+        rq_constituent_sync = _sync_record_constituents_to_database(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+        )
+        rq_record["database_constituent_sync"] = (
+            None if rq_constituent_sync is None else asdict(rq_constituent_sync)
+        )
+
+        rq_prediction_window = _resolve_record_prediction_db_window(
+            record=rq_record,
+            epoch_sync=rq_epoch_sync,
+        )
+
+        rq_tide_prediction_sync = _sync_record_tide_predictions_to_database(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+            prediction_window=rq_prediction_window,
+        )
+        rq_record["database_tide_prediction_sync"] = (
+            None if rq_tide_prediction_sync is None else asdict(rq_tide_prediction_sync)
+        )
+
+        rq_high_low_prediction_sync = _sync_record_high_low_predictions_to_database(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+            prediction_window=rq_prediction_window,
+        )
+        rq_record["database_high_low_prediction_sync"] = (
+            None if rq_high_low_prediction_sync is None else asdict(rq_high_low_prediction_sync)
+        )
+
+        rq_record.pop("_hourly_prediction_frames", None)
+        rq_record.pop("_minute_highlow_frames", None)
+
         summary["records"].append(rq_record)
+        processed_any_record = True
+
+    if not processed_any_record:
+        raise RuntimeError(
+            f"Station {station_id}: no FD or RQ records were successfully processed."
+        )
+
+    prediction_auto_cleanup = _run_auto_best_available_prediction_cleanup(
+        fd_epoch_sync=fd_epoch_sync,
+    )
+    summary["prediction_auto_cleanup"] = (
+        None if prediction_auto_cleanup is None else asdict(prediction_auto_cleanup)
+    )
+
+    # Optional manual override cleanup. Prefer the automatic cleanup above once
+    # date_range_by_time_series_quality is being maintained reliably.
+    _run_prediction_cutover_cleanup()
 
     summary_path = output_root / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
@@ -1213,15 +3919,67 @@ def _run_station(station_id: str) -> None:
             [
                 "## Source reconciliation",
                 f"- Status: `{reconciliation.status}`",
-                f"- DB RQ versions: `{', '.join(reconciliation.db_rq_versions) if reconciliation.db_rq_versions else 'none'}`",
-                f"- ERDDAP RQ versions: `{', '.join(reconciliation.erddap_rq_versions) if reconciliation.erddap_rq_versions else 'none'}`",
+                f"- DB time_series identity versions: `{', '.join(reconciliation.db_time_series_versions) if reconciliation.db_time_series_versions else 'none'}`",
+                f"- DB rq/hourly versions from date_range_by_time_series_quality: `{', '.join(reconciliation.db_rq_versions) if reconciliation.db_rq_versions else 'none'}`",
+                f"- ERDDAP metadata RQ versions: `{', '.join(reconciliation.erddap_rq_versions) if reconciliation.erddap_rq_versions else 'none'}`",
                 f"- RQ versions processed: `{', '.join(reconciliation.rq_versions_to_process) if reconciliation.rq_versions_to_process else 'none'}`",
-                f"- DB-only RQ versions skipped: `{', '.join(reconciliation.db_only_rq_versions) if reconciliation.db_only_rq_versions else 'none'}`",
-                f"- ERDDAP-only RQ versions unsafe for DB writes: `{', '.join(reconciliation.erddap_only_rq_versions) if reconciliation.erddap_only_rq_versions else 'none'}`",
+                f"- time_series versions without DB rq/hourly availability: `{', '.join(reconciliation.db_time_series_without_rq_versions) if reconciliation.db_time_series_without_rq_versions else 'none'}`",
+                f"- DB rq/hourly versions missing from ERDDAP metadata: `{', '.join(reconciliation.db_only_rq_versions) if reconciliation.db_only_rq_versions else 'none'}`",
+                f"- ERDDAP metadata RQ versions ignored because DB has no rq/hourly range: `{', '.join(reconciliation.erddap_metadata_only_rq_versions) if reconciliation.erddap_metadata_only_rq_versions else 'none'}`",
+                f"- ERDDAP metadata RQ versions without time_series identity rows: `{', '.join(reconciliation.erddap_versions_without_time_series) if reconciliation.erddap_versions_without_time_series else 'none'}`",
                 f"- FD/best_available source `{reconciliation.fd_source_record_id}` resolved to `time_series_id={reconciliation.fd_time_series_id}`, `id_from_source={reconciliation.fd_id_from_source}`",
                 "",
             ]
         )
+
+    skipped_records = summary.get("skipped_records") or []
+
+    if skipped_records:
+        md_lines.extend(
+            [
+                "## Skipped records",
+            ]
+        )
+
+        for skipped in skipped_records:
+            md_lines.append(
+                f"- `{skipped['record_id']}` / `{skipped['station_kind']}`: "
+                f"{skipped['reason']} "
+                f"(`{skipped['error_type']}: {skipped['error']}`)"
+            )
+
+        md_lines.append("")
+
+    prediction_auto_cleanup = summary.get("prediction_auto_cleanup")
+
+    if prediction_auto_cleanup is not None:
+        md_lines.extend(
+            [
+                "## Prediction auto cleanup",
+                f"- Current target: `{prediction_auto_cleanup['current_id_from_source']}` "
+                f"(`time_series_id={prediction_auto_cleanup['current_time_series_id']}`)",
+                f"- Actions planned: `{len(prediction_auto_cleanup['actions'])}`",
+                f"- Write cleanup: `{prediction_auto_cleanup['write_cleanup']}`",
+                f"- Tide prediction rows deleted: `{prediction_auto_cleanup['tide_prediction_rows_deleted']}`",
+                f"- High/low prediction rows deleted: `{prediction_auto_cleanup['high_low_prediction_rows_deleted']}`",
+            ]
+        )
+
+        if prediction_auto_cleanup.get("notes"):
+            md_lines.append(
+                "- Notes: `"
+                + " | ".join(prediction_auto_cleanup["notes"])
+                + "`"
+            )
+
+        for action in prediction_auto_cleanup["actions"]:
+            md_lines.append(
+                f"- `{action['id_from_source']}` keep window: "
+                f"`{action['valid_start']}` to `{action['valid_end']}`"
+            )
+
+        md_lines.append("")
+
     for record in summary["records"]:
         md_lines.append(f"## {record['record_id']}")
         md_lines.append(f"- Station name: {record['station_name']}")
@@ -1250,6 +4008,105 @@ def _run_station(station_id: str) -> None:
                 md_lines.append(f"- Database epoch IDs: `{epoch_id_text}`")
             else:
                 md_lines.append("- Database epoch IDs: none; dry-run/no-write mode")
+
+        datum_sync = record.get("database_datum_sync")
+
+        if datum_sync is None:
+            md_lines.append("- Database datum sync: none")
+        else:
+            md_lines.append(
+                "- Database datum sync: "
+                f"`rows_planned={datum_sync['rows_planned']}`, "
+                f"`rows_written={datum_sync['rows_written']}`, "
+                f"`write_datums={datum_sync['write_datums']}`"
+            )
+
+            if datum_sync.get("datum_id_by_epoch_and_short_name"):
+                for epoch_name, datum_ids in datum_sync[
+                    "datum_id_by_epoch_and_short_name"
+                ].items():
+                    datum_id_text = ", ".join(
+                        f"{short_name}={datum_id}"
+                        for short_name, datum_id in sorted(datum_ids.items())
+                    )
+                    md_lines.append(
+                        f"- Database datum IDs for `{epoch_name}`: `{datum_id_text}`"
+                    )
+            else:
+                md_lines.append("- Database datum IDs: none; dry-run/no-write mode")
+
+        constituent_sync = record.get("database_constituent_sync")
+
+        if constituent_sync is None:
+            md_lines.append("- Database constituent sync: none")
+        else:
+            md_lines.append(
+                "- Database constituent sync: "
+                f"`rows_planned={constituent_sync['rows_planned']}`, "
+                f"`rows_written={constituent_sync['rows_written']}`, "
+                f"`missing_definitions={len(constituent_sync['missing_definition_short_names'])}`, "
+                f"`write_constituents={constituent_sync['write_constituents']}`"
+            )
+
+            if constituent_sync.get("missing_definition_short_names"):
+                md_lines.append(
+                    "- Missing constituent definitions: `"
+                    + ", ".join(constituent_sync["missing_definition_short_names"])
+                    + "`"
+                )
+
+            if constituent_sync.get("constituent_id_by_epoch_and_short_name"):
+                for epoch_name, constituent_ids in constituent_sync[
+                    "constituent_id_by_epoch_and_short_name"
+                ].items():
+                    md_lines.append(
+                        f"- Database constituent IDs for `{epoch_name}`: "
+                        f"`{len(constituent_ids)} row(s)`"
+                    )
+            else:
+                md_lines.append(
+                    "- Database constituent IDs: none; dry-run/no-write mode"
+                )
+
+        tide_prediction_sync = record.get("database_tide_prediction_sync")
+
+        if tide_prediction_sync is None:
+            md_lines.append("- Database tide prediction sync: none")
+        else:
+            md_lines.append(
+                "- Database tide prediction sync: "
+                f"`rows_planned={tide_prediction_sync['rows_planned']}`, "
+                f"`rows_deleted={tide_prediction_sync['rows_deleted']}`, "
+                f"`rows_written={tide_prediction_sync['rows_written']}`, "
+                f"`write_tide_predictions={tide_prediction_sync['write_tide_predictions']}`"
+            )
+
+            if tide_prediction_sync.get("notes"):
+                md_lines.append(
+                    "- Database tide prediction notes: `"
+                    + " | ".join(tide_prediction_sync["notes"])
+                    + "`"
+                )
+
+        high_low_prediction_sync = record.get("database_high_low_prediction_sync")
+
+        if high_low_prediction_sync is None:
+            md_lines.append("- Database high/low prediction sync: none")
+        else:
+            md_lines.append(
+                "- Database high/low prediction sync: "
+                f"`rows_planned={high_low_prediction_sync['rows_planned']}`, "
+                f"`rows_deleted={high_low_prediction_sync['rows_deleted']}`, "
+                f"`rows_written={high_low_prediction_sync['rows_written']}`, "
+                f"`write_high_low_predictions={high_low_prediction_sync['write_high_low_predictions']}`"
+            )
+
+            if high_low_prediction_sync.get("notes"):
+                md_lines.append(
+                    "- Database high/low prediction notes: `"
+                    + " | ".join(high_low_prediction_sync["notes"])
+                    + "`"
+                )
 
         md_lines.append(f"- Prediction basis epoch: `{record['prediction_basis_epoch']}`")
         md_lines.append(f"- Prediction scope: `{record['prediction_scope']}`")

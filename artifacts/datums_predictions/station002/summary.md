@@ -1,22 +1,33 @@
 # Station 002 Datums Predictions
 
-Output root: `artifacts/datums_predictions/station002`
+Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002`
 
 ## Source reconciliation
 - Status: `ok`
-- DB RQ versions: `A, B, C, D`
-- ERDDAP RQ versions: `A, B, C, D`
+- DB time_series identity versions: `A, B, C, D`
+- DB rq/hourly versions from date_range_by_time_series_quality: `A, B, C, D`
+- ERDDAP metadata RQ versions: `A, B, C, D`
 - RQ versions processed: `A, B, C, D`
-- DB-only RQ versions skipped: `none`
-- ERDDAP-only RQ versions unsafe for DB writes: `none`
+- time_series versions without DB rq/hourly availability: `none`
+- DB rq/hourly versions missing from ERDDAP metadata: `none`
+- ERDDAP metadata RQ versions ignored because DB has no rq/hourly range: `none`
+- ERDDAP metadata RQ versions without time_series identity rows: `none`
 - FD/best_available source `002` resolved to `time_series_id=180`, `id_from_source=000002D`
 
 ## 002
 - Station name: Tarawa, Bairiki
 - Station kind: FD
-- NetCDF: `artifacts/datums_predictions/station002/netcdf/002.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002/netcdf/002.nc`
 - Database sync: `time_series_id=180`, `id_from_source=000002D`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1992-12-04 01:00:00` to `2100-12-31 23:00:00` (947375 rows)
@@ -30,9 +41,17 @@ Output root: `artifacts/datums_predictions/station002`
 ## 002a
 - Station name: Tarawa, Betio
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station002/netcdf/002a.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002/netcdf/002a.nc`
 - Database sync: `time_series_id=221`, `id_from_source=000002A`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `RECENT_1974-05-03_1983-12-31`
 - Prediction scope: `record_span`
 - Saved hourly prediction: `hourly_prediction_primary` from `1974-05-03 05:00:00` to `1983-12-31 10:00:00` (84702 rows)
@@ -44,9 +63,17 @@ Output root: `artifacts/datums_predictions/station002`
 ## 002b
 - Station name: Tarawa, Bairiki
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station002/netcdf/002b.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002/netcdf/002b.nc`
 - Database sync: `time_series_id=595`, `id_from_source=000002B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `RECENT_1983-05-17_1988-05-10`
 - Prediction scope: `record_span`
 - Saved hourly prediction: `hourly_prediction_primary` from `1983-05-17 07:00:00` to `1988-05-10 03:00:00` (43677 rows)
@@ -58,9 +85,17 @@ Output root: `artifacts/datums_predictions/station002`
 ## 002c
 - Station name: Tarawa, Betio
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station002/netcdf/002c.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002/netcdf/002c.nc`
 - Database sync: `time_series_id=449`, `id_from_source=000002C`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `RECENT_1988-01-20_1997-12-31`
 - Prediction scope: `record_span`
 - Saved hourly prediction: `hourly_prediction_primary` from `1988-01-20 05:00:00` to `1997-12-31 23:00:00` (87211 rows)
@@ -72,9 +107,17 @@ Output root: `artifacts/datums_predictions/station002`
 ## 002d
 - Station name: Tarawa, Betio
 - Station kind: RQ
-- NetCDF: `artifacts/datums_predictions/station002/netcdf/002d.nc`
+- NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station002/netcdf/002d.nc`
 - Database sync: `time_series_id=180`, `id_from_source=000002D`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
 - Database epoch IDs: none; dry-run/no-write mode
+- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database datum IDs: none; dry-run/no-write mode
+- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent IDs: none; dry-run/no-write mode
+- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `No epoch IDs available.`
+- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `No epoch IDs available.`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1992-12-04 01:00:00` to `2100-12-31 23:00:00` (947375 rows)

@@ -5,23 +5,25 @@
       "record_id": "007",
       "station_name": "Malakal",
       "station_kind": "FD",
-      "netcdf": "artifacts/datums_predictions/station007/netcdf/007.nc",
+      "netcdf": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007.nc",
+      "observation_start": "1969-05-18 15:00:00",
+      "observation_end": "2026-04-30 23:00:00",
       "harmonic_artifacts": {
         "NTDE_2002-2020": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.json"
         },
         "NTDE_1983-2001": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.json"
         },
         "IPCC-AR6_1995-2014": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.json"
         },
         "RECENT_2007-04-30_2026-04-30": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.json"
         }
       },
       "prediction_basis_epoch": "NTDE_2002-2020",
@@ -128,8 +130,8 @@
             "MS4"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_2002-2020_harmonics.json"
           },
           "hourly_prediction_rows": 1153785,
           "hourly_prediction_variable": "hourly_prediction_primary",
@@ -140,9 +142,9 @@
           "hourly_overlap_rows": 164206,
           "epoch_residual_rows": 164206,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_2002-2020_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -214,8 +216,8 @@
             "NU2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/NTDE_1983-2001_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -226,9 +228,9 @@
           "hourly_overlap_rows": 165292,
           "epoch_residual_rows": 165292,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/NTDE_1983-2001_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -300,8 +302,8 @@
             "L2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/IPCC-AR6_1995-2014_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -312,9 +314,9 @@
           "hourly_overlap_rows": 173651,
           "epoch_residual_rows": 173651,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/IPCC-AR6_1995-2014_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -386,8 +388,8 @@
             "M4"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007/RECENT_2007-04-30_2026-04-30_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -398,9 +400,9 @@
           "hourly_overlap_rows": 165253,
           "epoch_residual_rows": 165253,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007/RECENT_2007-04-30_2026-04-30_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -433,17 +435,77 @@
         "resolution_rule": "fd_unversioned_source_resolved_by_database",
         "epoch_id_by_name": {},
         "write_epochs": false
+      },
+      "database_datum_sync": {
+        "record_id": "007",
+        "station_kind": "FD",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "best_available",
+        "input_basis_id": 2,
+        "datum_id_by_epoch_and_short_name": {},
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_datums": false
+      },
+      "database_constituent_sync": {
+        "record_id": "007",
+        "station_kind": "FD",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "best_available",
+        "input_basis_id": 2,
+        "constituent_id_by_epoch_and_short_name": {},
+        "missing_definition_short_names": [],
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_constituents": false
+      },
+      "database_tide_prediction_sync": {
+        "record_id": "007",
+        "station_kind": "FD",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "best_available",
+        "input_basis_id": 2,
+        "resolution_id": 0,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_tide_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
+      },
+      "database_high_low_prediction_sync": {
+        "record_id": "007",
+        "station_kind": "FD",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "best_available",
+        "input_basis_id": 2,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_high_low_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
       }
     },
     {
       "record_id": "007a",
       "station_name": "Malakal",
       "station_kind": "RQ",
-      "netcdf": "artifacts/datums_predictions/station007/netcdf/007a.nc",
+      "netcdf": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007a.nc",
+      "observation_start": "1926-01-01 01:00:00",
+      "observation_end": "1939-12-10 15:00:00",
       "harmonic_artifacts": {
         "RECENT_1926-01-01_1939-12-10": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.json"
         }
       },
       "prediction_basis_epoch": "RECENT_1926-01-01_1939-12-10",
@@ -534,8 +596,8 @@
             "MS4"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007a/RECENT_1926-01-01_1939-12-10_harmonics.json"
           },
           "hourly_prediction_rows": 122199,
           "hourly_prediction_variable": "hourly_prediction_primary",
@@ -546,9 +608,9 @@
           "hourly_overlap_rows": 113090,
           "epoch_residual_rows": 113090,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007a/RECENT_1926-01-01_1939-12-10_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -581,29 +643,89 @@
         "resolution_rule": "rq_exact_id_from_source",
         "epoch_id_by_name": {},
         "write_epochs": false
+      },
+      "database_datum_sync": {
+        "record_id": "007a",
+        "station_kind": "RQ",
+        "time_series_id": 372,
+        "id_from_source": "000007A",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "datum_id_by_epoch_and_short_name": {},
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_datums": false
+      },
+      "database_constituent_sync": {
+        "record_id": "007a",
+        "station_kind": "RQ",
+        "time_series_id": 372,
+        "id_from_source": "000007A",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "constituent_id_by_epoch_and_short_name": {},
+        "missing_definition_short_names": [],
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_constituents": false
+      },
+      "database_tide_prediction_sync": {
+        "record_id": "007a",
+        "station_kind": "RQ",
+        "time_series_id": 372,
+        "id_from_source": "000007A",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "resolution_id": 0,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_tide_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
+      },
+      "database_high_low_prediction_sync": {
+        "record_id": "007a",
+        "station_kind": "RQ",
+        "time_series_id": 372,
+        "id_from_source": "000007A",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_high_low_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
       }
     },
     {
       "record_id": "007b",
       "station_name": "Malakal",
       "station_kind": "RQ",
-      "netcdf": "artifacts/datums_predictions/station007/netcdf/007b.nc",
+      "netcdf": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/netcdf/007b.nc",
+      "observation_start": "1969-05-18 15:00:00",
+      "observation_end": "2018-12-31 23:00:00",
       "harmonic_artifacts": {
         "NTDE_2002-2020": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.json"
         },
         "NTDE_1983-2001": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.json"
         },
         "IPCC-AR6_1995-2014": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.json"
         },
         "RECENT_1999-12-31_2018-12-31": {
-          "pickle": "artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.pkl",
-          "json": "artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.json"
+          "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.pkl",
+          "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.json"
         }
       },
       "prediction_basis_epoch": "NTDE_2002-2020",
@@ -710,8 +832,8 @@
             "MS4"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_2002-2020_harmonics.json"
           },
           "hourly_prediction_rows": 1153785,
           "hourly_prediction_variable": "hourly_prediction_primary",
@@ -722,9 +844,9 @@
           "hourly_overlap_rows": 146662,
           "epoch_residual_rows": 146662,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_2002-2020_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -796,8 +918,8 @@
             "NU2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/NTDE_1983-2001_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -808,9 +930,9 @@
           "hourly_overlap_rows": 165292,
           "epoch_residual_rows": 165292,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/NTDE_1983-2001_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -882,8 +1004,8 @@
             "L2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/IPCC-AR6_1995-2014_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -894,9 +1016,9 @@
           "hourly_overlap_rows": 173651,
           "epoch_residual_rows": 173651,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/IPCC-AR6_1995-2014_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -968,8 +1090,8 @@
             "L2"
           ],
           "harmonic_artifact": {
-            "pickle": "artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.pkl",
-            "json": "artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.json"
+            "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.pkl",
+            "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/harmonics/007b/RECENT_1999-12-31_2018-12-31_harmonics.json"
           },
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
@@ -980,9 +1102,9 @@
           "hourly_overlap_rows": 164207,
           "epoch_residual_rows": 164207,
           "plots": {
-            "datums": "artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_datums.png",
-            "hourly_observed_vs_predicted": "artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_hourly_observed_vs_predicted.png",
-            "hourly_residuals": "artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_hourly_residuals.png",
+            "datums": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_datums.png",
+            "hourly_observed_vs_predicted": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_hourly_observed_vs_predicted.png",
+            "hourly_residuals": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station007/plots/007b/RECENT_1999-12-31_2018-12-31_hourly_residuals.png",
             "fd_high_low": null
           },
           "plot_window_rows": 744,
@@ -1015,11 +1137,74 @@
         "resolution_rule": "rq_exact_id_from_source",
         "epoch_id_by_name": {},
         "write_epochs": false
+      },
+      "database_datum_sync": {
+        "record_id": "007b",
+        "station_kind": "RQ",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "datum_id_by_epoch_and_short_name": {},
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_datums": false
+      },
+      "database_constituent_sync": {
+        "record_id": "007b",
+        "station_kind": "RQ",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "constituent_id_by_epoch_and_short_name": {},
+        "missing_definition_short_names": [],
+        "rows_planned": 0,
+        "rows_written": 0,
+        "write_constituents": false
+      },
+      "database_tide_prediction_sync": {
+        "record_id": "007b",
+        "station_kind": "RQ",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "resolution_id": 0,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_tide_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
+      },
+      "database_high_low_prediction_sync": {
+        "record_id": "007b",
+        "station_kind": "RQ",
+        "time_series_id": 315,
+        "id_from_source": "000007B",
+        "input_basis_code": "research_quality",
+        "input_basis_id": 1,
+        "rows_planned": 0,
+        "rows_deleted": 0,
+        "rows_written": 0,
+        "rows_skipped": 0,
+        "write_high_low_predictions": false,
+        "notes": [
+          "No epoch IDs available."
+        ]
       }
     }
   ],
+  "skipped_records": [],
   "source_reconciliation": {
     "station_id": "007",
+    "db_time_series_versions": [
+      "A",
+      "B"
+    ],
     "db_rq_versions": [
       "A",
       "B"
@@ -1033,10 +1218,13 @@
       "B"
     ],
     "db_only_rq_versions": [],
-    "erddap_only_rq_versions": [],
+    "erddap_metadata_only_rq_versions": [],
+    "db_time_series_without_rq_versions": [],
+    "erddap_versions_without_time_series": [],
     "fd_source_record_id": "007",
     "fd_time_series_id": 315,
     "fd_id_from_source": "000007B",
     "status": "ok"
-  }
+  },
+  "prediction_auto_cleanup": null
 }
