@@ -25,16 +25,14 @@ Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predic
 - Station name: Honolulu, Hawaii
 - Station kind: FD
 - NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/netcdf/057.nc`
-- Database sync: `time_series_id=617`, `id_from_source=000057B`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=False`
-- Database epoch IDs: none; dry-run/no-write mode
-- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database sync: `time_series_id=617`, `id_from_source=000057B`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=True`
+- Database epoch IDs: `NTDE_2002-2020=1853, NTDE_1983-2001=1854, IPCC-AR6_1995-2014=1855, RECENT_2007-04-30_2026-04-30=1856`
+- Database datum sync: `rows_planned=52`, `rows_written=0`, `write_datums=False`
 - Database datum IDs: none; dry-run/no-write mode
-- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent sync: `rows_planned=272`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
 - Database constituent IDs: none; dry-run/no-write mode
-- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
-- Database tide prediction notes: `No epoch IDs available.`
-- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
-- Database high/low prediction notes: `No epoch IDs available.`
+- Database tide prediction sync: `rows_planned=1718102`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database high/low prediction sync: `rows_planned=8440`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1905-01-01 10:00:00` to `2100-12-31 23:00:00` (1718102 rows)
@@ -50,16 +48,16 @@ Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predic
 - Station name: Honolulu, Hawaii
 - Station kind: RQ
 - NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/netcdf/057b.nc`
-- Database sync: `time_series_id=617`, `id_from_source=000057B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
-- Database epoch IDs: none; dry-run/no-write mode
-- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database sync: `time_series_id=617`, `id_from_source=000057B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=True`
+- Database epoch IDs: `NTDE_2002-2020=1857, NTDE_1983-2001=1858, IPCC-AR6_1995-2014=1859, RECENT_2002-12-31_2021-12-31=1860`
+- Database datum sync: `rows_planned=52`, `rows_written=0`, `write_datums=False`
 - Database datum IDs: none; dry-run/no-write mode
-- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent sync: `rows_planned=272`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
 - Database constituent IDs: none; dry-run/no-write mode
-- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
-- Database tide prediction notes: `No epoch IDs available.`
-- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
-- Database high/low prediction notes: `No epoch IDs available.`
+- Database tide prediction sync: `rows_planned=1025606`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `RQ hourly prediction bounded by date_range_by_time_series_quality: 1905-01-01 10:00:00 to 2021-12-31 23:00:00.`
+- Database high/low prediction sync: `rows_planned=164952`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `RQ high/low prediction generated for DB write from date_range_by_time_series_quality: 1905-01-01 10:00:00 to 2021-12-31 23:00:00.`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1905-01-01 10:00:00` to `2100-12-31 23:00:00` (1718102 rows)

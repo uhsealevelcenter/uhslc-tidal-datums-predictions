@@ -864,9 +864,21 @@ def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None
     return DatumResult(tide_type=tide_type, MHHW=MHHW, MHW=MHW, DTL=DTL, MTL=MTL, MSL=MSL, MLW=MLW, MLLW=MLLW, GT=GT, MN=MN, DHQ=DHQ, DLQ=DLQ, HAT=HAT, LAT=LAT, p90_low=p90_low, p95_low=p95_low, p99_low=p99_low, p90_high=p90_high, p95_high=p95_high, p99_high=p99_high)
 
 
+def prepare_harmonic_fit_dataframe(df_epoch: pd.DataFrame) -> pd.DataFrame:
+    """Return the cleaned observation rows that are eligible for harmonic fitting.
+
+    This is the authoritative preparation step for UTide input. Callers that
+    persist fit_begin/fit_end metadata should derive those values from this
+    dataframe so the recorded fit window matches the observations used by
+    fit_harmonics().
+    """
+    fit_df = clean_hourly_dataframe(df_epoch)
+    fit_df = fit_df.dropna(subset=['sea_level']).copy()
+    return fit_df.reset_index(drop=True)
+
+
 def fit_harmonics(df_epoch: pd.DataFrame, latitude: float) -> HarmonicResult:
-    df_epoch = clean_hourly_dataframe(df_epoch)
-    df_epoch = df_epoch.dropna(subset=['sea_level'])
+    df_epoch = prepare_harmonic_fit_dataframe(df_epoch)
     if len(df_epoch) < 24 * 30:
         raise ValueError('Need at least ~30 days of valid hourly data for harmonic analysis.')
 
@@ -949,17 +961,32 @@ def load_harmonic_result(path: str) -> HarmonicResult:
     )
 
 
-def predict_from_harmonics(harmonics: HarmonicResult, start: pd.Timestamp, end: pd.Timestamp, freq: str = '1h') -> pd.DataFrame:
-    if end < start:
-        raise ValueError('Prediction end precedes start.')
-    time = pd.date_range(start=start, end=end, freq=freq)
+MAX_RECONSTRUCT_POINTS = 50_000
+
+
+def _empty_prediction_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "time": pd.Series(dtype="datetime64[ns]"),
+            "prediction_mm": pd.Series(dtype=float),
+        }
+    )
+
+
+def _predict_from_harmonics_for_times(
+    harmonics: HarmonicResult,
+    time: pd.DatetimeIndex,
+) -> pd.DataFrame:
     if len(time) == 0:
-        return pd.DataFrame({'time': [], 'prediction_mm': []})
+        return _empty_prediction_dataframe()
+
     if harmonics.coef is None:
-        raise ValueError('UTide coefficients not available for reconstruction.')
+        raise ValueError("UTide coefficients not available for reconstruction.")
+
     coef = copy.deepcopy(harmonics.coef)
-    if hasattr(coef, 'slope'):
+    if hasattr(coef, "slope"):
         coef.slope = 0.0
+
     # With conf_int='none' above, reconstruct cannot rely on SNR-based
     # filtering. Use the fitted constituent list directly, matching the legacy
     # "use solved coefficients, zero trend, reconstruct" workflow.
@@ -970,8 +997,51 @@ def predict_from_harmonics(harmonics: HarmonicResult, start: pd.Timestamp, end: 
         min_SNR=0,
         verbose=False,
     )
+
     pred = np.asarray(recon.h, dtype=float)
-    return pd.DataFrame({'time': time, 'prediction_mm': pred})
+    return pd.DataFrame({"time": time, "prediction_mm": pred})
+
+
+def predict_from_harmonics(
+    harmonics: HarmonicResult,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    freq: str = "1h",
+    max_points_per_chunk: int = MAX_RECONSTRUCT_POINTS,
+) -> pd.DataFrame:
+    """Reconstruct tidal predictions from harmonics.
+
+    This uses the same timestamp grid as the original implementation, but
+    evaluates UTide reconstruction in chunks to reduce peak memory use.
+    """
+    start = pd.Timestamp(start)
+    end = pd.Timestamp(end)
+
+    if end < start:
+        raise ValueError("Prediction end precedes start.")
+
+    time = pd.date_range(start=start, end=end, freq=freq)
+
+    if len(time) == 0:
+        return _empty_prediction_dataframe()
+
+    if (
+        max_points_per_chunk is None
+        or max_points_per_chunk <= 0
+        or len(time) <= max_points_per_chunk
+    ):
+        return _predict_from_harmonics_for_times(harmonics, time)
+
+    chunks = []
+    for i in range(0, len(time), max_points_per_chunk):
+        chunks.append(
+            _predict_from_harmonics_for_times(
+                harmonics,
+                time[i : i + max_points_per_chunk],
+            )
+        )
+
+    return pd.concat(chunks, ignore_index=True)
 
 
 def extract_daily_high_low(minute_pred_df: pd.DataFrame) -> pd.DataFrame:

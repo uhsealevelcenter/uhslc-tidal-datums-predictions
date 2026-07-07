@@ -103,8 +103,8 @@
             "MN": 385.22885076623334,
             "DHQ": 147.90471298798457,
             "DLQ": 53.13347068741041,
-            "HAT": 2039.0279200557675,
-            "LAT": 1062.8416521154359,
+            "HAT": 2039.027920055768,
+            "LAT": 1062.841652115435,
             "p90_low": 1222.0,
             "p95_low": 1180.0,
             "p99_low": 1109.0,
@@ -113,8 +113,8 @@
             "p99_high": 1939.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1456.557875867447,
-          "harmonic_slope_mm_per_day": 0.012075570466180475,
+          "harmonic_mean_mm": 1456.5578758674474,
+          "harmonic_slope_mm_per_day": 0.012075570466180593,
           "top_constituents": [
             "M2",
             "K1",
@@ -133,6 +133,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/NTDE_2002-2020_harmonics.json"
           },
+          "fit_begin": "2002-01-01 00:00:00",
+          "fit_end": "2020-12-31 23:00:00",
+          "fit_observation_rows": 166560,
           "hourly_prediction_rows": 1718102,
           "hourly_prediction_variable": "hourly_prediction_primary",
           "hourly_prediction_start": "1905-01-01 10:00:00",
@@ -148,11 +151,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 32.51054510442126,
-          "epoch_rmse_mm": 63.9661632715942,
-          "epoch_residual_mean_mm": -2.7293577793838883e-12,
-          "epoch_residual_std_mm": 63.966163271594205,
-          "epoch_residual_abs_p95_mm": 125.89651465074417,
+          "plot_window_rmse_mm": 32.51054510442139,
+          "epoch_rmse_mm": 63.966163271594205,
+          "epoch_residual_mean_mm": -3.186813519872174e-12,
+          "epoch_residual_std_mm": 63.9661632715942,
+          "epoch_residual_abs_p95_mm": 125.89651465074388,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 8440,
           "minute_highlow_time_variable": "minute_highlow_time_primary",
@@ -184,8 +187,8 @@
             "MN": 376.1641044516821,
             "DHQ": 148.02493186306833,
             "DLQ": 54.04981910693641,
-            "HAT": 1979.850624132119,
-            "LAT": 1024.0044956181448,
+            "HAT": 1979.8506241321188,
+            "LAT": 1024.0044956181434,
             "p90_low": 1183.0,
             "p95_low": 1140.0,
             "p99_low": 1070.0,
@@ -194,8 +197,8 @@
             "p99_high": 1881.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1411.4514193080875,
-          "harmonic_slope_mm_per_day": 0.002499557018582442,
+          "harmonic_mean_mm": 1411.4514193080881,
+          "harmonic_slope_mm_per_day": 0.0024995570185826588,
           "top_constituents": [
             "M2",
             "K1",
@@ -214,6 +217,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/NTDE_1983-2001_harmonics.json"
           },
+          "fit_begin": "1983-01-01 00:00:00",
+          "fit_end": "2001-12-31 23:00:00",
+          "fit_observation_rows": 164899,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -229,11 +235,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 55.89429446260754,
+          "plot_window_rmse_mm": 55.89429446260779,
           "epoch_rmse_mm": 60.07655218277041,
-          "epoch_residual_mean_mm": 0.002607457174594475,
-          "epoch_residual_std_mm": 60.07655212618566,
-          "epoch_residual_abs_p95_mm": 117.10544869673971,
+          "epoch_residual_mean_mm": 0.0026074571739061777,
+          "epoch_residual_std_mm": 60.07655212618567,
+          "epoch_residual_abs_p95_mm": 117.10544869673645,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -266,7 +272,7 @@
             "DHQ": 146.16158064206434,
             "DLQ": 53.21691315869862,
             "HAT": 2005.6317526901744,
-            "LAT": 1042.700367775195,
+            "LAT": 1042.7003677751923,
             "p90_low": 1205.0,
             "p95_low": 1163.0,
             "p99_low": 1094.0,
@@ -275,8 +281,8 @@
             "p99_high": 1900.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1431.0953536380657,
-          "harmonic_slope_mm_per_day": -0.0008487526809442537,
+          "harmonic_mean_mm": 1431.0953536380666,
+          "harmonic_slope_mm_per_day": -0.0008487526809442926,
           "top_constituents": [
             "M2",
             "K1",
@@ -295,6 +301,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/IPCC-AR6_1995-2014_harmonics.json"
           },
+          "fit_begin": "1995-01-01 00:00:00",
+          "fit_end": "2014-12-31 23:00:00",
+          "fit_observation_rows": 175320,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -310,11 +319,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 35.09772116159954,
+          "plot_window_rmse_mm": 35.09772116159901,
           "epoch_rmse_mm": 54.04621933741627,
-          "epoch_residual_mean_mm": -1.9117026667792912e-12,
+          "epoch_residual_mean_mm": -2.81791878851845e-12,
           "epoch_residual_std_mm": 54.04621933741627,
-          "epoch_residual_abs_p95_mm": 107.43519310446574,
+          "epoch_residual_abs_p95_mm": 107.43519310446543,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -346,8 +355,8 @@
             "MN": 383.77863772161913,
             "DHQ": 147.48169358293057,
             "DLQ": 53.8471153452042,
-            "HAT": 2043.0930435273754,
-            "LAT": 1066.8553748144614,
+            "HAT": 2043.093043527373,
+            "LAT": 1066.8553748144582,
             "p90_low": 1233.0,
             "p95_low": 1190.0,
             "p99_low": 1119.0,
@@ -356,8 +365,8 @@
             "p99_high": 1951.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1466.8352427354903,
-          "harmonic_slope_mm_per_day": 0.015840619162249787,
+          "harmonic_mean_mm": 1466.835242735489,
+          "harmonic_slope_mm_per_day": 0.01584061916224988,
           "top_constituents": [
             "M2",
             "K1",
@@ -376,6 +385,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-04-30_2026-04-30_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057/RECENT_2007-04-30_2026-04-30_harmonics.json"
           },
+          "fit_begin": "2007-04-30 23:00:00",
+          "fit_end": "2026-04-30 23:00:00",
+          "fit_observation_rows": 166383,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -391,11 +403,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 51.19822526414604,
-          "epoch_rmse_mm": 63.75533046761588,
-          "epoch_residual_mean_mm": -0.0453024169545973,
+          "plot_window_rmse_mm": 51.198225264145435,
+          "epoch_rmse_mm": 63.755330467615885,
+          "epoch_residual_mean_mm": -0.04530241695323362,
           "epoch_residual_std_mm": 63.75531437241862,
-          "epoch_residual_abs_p95_mm": 123.73674933642971,
+          "epoch_residual_abs_p95_mm": 123.73674933642694,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -413,8 +425,13 @@
         "time_series_id": 617,
         "id_from_source": "000057B",
         "resolution_rule": "fd_unversioned_source_resolved_by_database",
-        "epoch_id_by_name": {},
-        "write_epochs": false
+        "epoch_id_by_name": {
+          "NTDE_2002-2020": 1853,
+          "NTDE_1983-2001": 1854,
+          "IPCC-AR6_1995-2014": 1855,
+          "RECENT_2007-04-30_2026-04-30": 1856
+        },
+        "write_epochs": true
       },
       "database_datum_sync": {
         "record_id": "057",
@@ -424,7 +441,7 @@
         "input_basis_code": "best_available",
         "input_basis_id": 2,
         "datum_id_by_epoch_and_short_name": {},
-        "rows_planned": 0,
+        "rows_planned": 52,
         "rows_written": 0,
         "write_datums": false
       },
@@ -437,7 +454,7 @@
         "input_basis_id": 2,
         "constituent_id_by_epoch_and_short_name": {},
         "missing_definition_short_names": [],
-        "rows_planned": 0,
+        "rows_planned": 272,
         "rows_written": 0,
         "write_constituents": false
       },
@@ -448,15 +465,13 @@
         "id_from_source": "000057B",
         "input_basis_code": "best_available",
         "input_basis_id": 2,
-        "resolution_id": 0,
-        "rows_planned": 0,
+        "resolution_id": 1,
+        "rows_planned": 1718102,
         "rows_deleted": 0,
         "rows_written": 0,
         "rows_skipped": 0,
         "write_tide_predictions": false,
-        "notes": [
-          "No epoch IDs available."
-        ]
+        "notes": []
       },
       "database_high_low_prediction_sync": {
         "record_id": "057",
@@ -465,14 +480,12 @@
         "id_from_source": "000057B",
         "input_basis_code": "best_available",
         "input_basis_id": 2,
-        "rows_planned": 0,
+        "rows_planned": 8440,
         "rows_deleted": 0,
         "rows_written": 0,
         "rows_skipped": 0,
         "write_high_low_predictions": false,
-        "notes": [
-          "No epoch IDs available."
-        ]
+        "notes": []
       }
     },
     {
@@ -577,8 +590,8 @@
             "MN": 385.22885076623334,
             "DHQ": 147.90471298798457,
             "DLQ": 53.13347068741041,
-            "HAT": 2039.0279200557675,
-            "LAT": 1062.8416521154359,
+            "HAT": 2039.027920055768,
+            "LAT": 1062.841652115435,
             "p90_low": 1222.0,
             "p95_low": 1180.0,
             "p99_low": 1109.0,
@@ -587,8 +600,8 @@
             "p99_high": 1939.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1456.557875867447,
-          "harmonic_slope_mm_per_day": 0.012075570466180475,
+          "harmonic_mean_mm": 1456.5578758674474,
+          "harmonic_slope_mm_per_day": 0.012075570466180593,
           "top_constituents": [
             "M2",
             "K1",
@@ -607,6 +620,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/NTDE_2002-2020_harmonics.json"
           },
+          "fit_begin": "2002-01-01 00:00:00",
+          "fit_end": "2020-12-31 23:00:00",
+          "fit_observation_rows": 166560,
           "hourly_prediction_rows": 1718102,
           "hourly_prediction_variable": "hourly_prediction_primary",
           "hourly_prediction_start": "1905-01-01 10:00:00",
@@ -622,11 +638,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 32.51054510442126,
-          "epoch_rmse_mm": 63.9661632715942,
-          "epoch_residual_mean_mm": -2.7293577793838883e-12,
-          "epoch_residual_std_mm": 63.966163271594205,
-          "epoch_residual_abs_p95_mm": 125.89651465074417,
+          "plot_window_rmse_mm": 32.51054510442139,
+          "epoch_rmse_mm": 63.966163271594205,
+          "epoch_residual_mean_mm": -3.186813519872174e-12,
+          "epoch_residual_std_mm": 63.9661632715942,
+          "epoch_residual_abs_p95_mm": 125.89651465074388,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 8440,
           "minute_highlow_time_variable": "minute_highlow_time_primary",
@@ -658,8 +674,8 @@
             "MN": 376.1641044516821,
             "DHQ": 148.02493186306833,
             "DLQ": 54.04981910693641,
-            "HAT": 1979.850624132119,
-            "LAT": 1024.0044956181448,
+            "HAT": 1979.8506241321188,
+            "LAT": 1024.0044956181434,
             "p90_low": 1183.0,
             "p95_low": 1140.0,
             "p99_low": 1070.0,
@@ -668,8 +684,8 @@
             "p99_high": 1881.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1411.4514193080875,
-          "harmonic_slope_mm_per_day": 0.002499557018582442,
+          "harmonic_mean_mm": 1411.4514193080881,
+          "harmonic_slope_mm_per_day": 0.0024995570185826588,
           "top_constituents": [
             "M2",
             "K1",
@@ -688,6 +704,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/NTDE_1983-2001_harmonics.json"
           },
+          "fit_begin": "1983-01-01 00:00:00",
+          "fit_end": "2001-12-31 23:00:00",
+          "fit_observation_rows": 164899,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -703,11 +722,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 55.89429446260754,
+          "plot_window_rmse_mm": 55.89429446260779,
           "epoch_rmse_mm": 60.07655218277041,
-          "epoch_residual_mean_mm": 0.002607457174594475,
-          "epoch_residual_std_mm": 60.07655212618566,
-          "epoch_residual_abs_p95_mm": 117.10544869673971,
+          "epoch_residual_mean_mm": 0.0026074571739061777,
+          "epoch_residual_std_mm": 60.07655212618567,
+          "epoch_residual_abs_p95_mm": 117.10544869673645,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -740,7 +759,7 @@
             "DHQ": 146.16158064206434,
             "DLQ": 53.21691315869862,
             "HAT": 2005.6317526901744,
-            "LAT": 1042.700367775195,
+            "LAT": 1042.7003677751923,
             "p90_low": 1205.0,
             "p95_low": 1163.0,
             "p99_low": 1094.0,
@@ -749,8 +768,8 @@
             "p99_high": 1900.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1431.0953536380657,
-          "harmonic_slope_mm_per_day": -0.0008487526809442537,
+          "harmonic_mean_mm": 1431.0953536380666,
+          "harmonic_slope_mm_per_day": -0.0008487526809442926,
           "top_constituents": [
             "M2",
             "K1",
@@ -769,6 +788,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/IPCC-AR6_1995-2014_harmonics.json"
           },
+          "fit_begin": "1995-01-01 00:00:00",
+          "fit_end": "2014-12-31 23:00:00",
+          "fit_observation_rows": 175320,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -784,11 +806,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 35.09772116159954,
+          "plot_window_rmse_mm": 35.09772116159901,
           "epoch_rmse_mm": 54.04621933741627,
-          "epoch_residual_mean_mm": -1.9117026667792912e-12,
+          "epoch_residual_mean_mm": -2.81791878851845e-12,
           "epoch_residual_std_mm": 54.04621933741627,
-          "epoch_residual_abs_p95_mm": 107.43519310446574,
+          "epoch_residual_abs_p95_mm": 107.43519310446543,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -820,8 +842,8 @@
             "MN": 385.19760464979277,
             "DHQ": 147.7762437106751,
             "DLQ": 54.235037877790774,
-            "HAT": 2046.10868072636,
-            "LAT": 1066.5938881649436,
+            "HAT": 2046.1086807263582,
+            "LAT": 1066.5938881649406,
             "p90_low": 1228.0,
             "p95_low": 1185.0,
             "p99_low": 1114.0,
@@ -830,8 +852,8 @@
             "p99_high": 1943.0
           },
           "harmonic_constituent_count": 68,
-          "harmonic_mean_mm": 1461.1954371031127,
-          "harmonic_slope_mm_per_day": 0.010693898990982477,
+          "harmonic_mean_mm": 1461.195437103113,
+          "harmonic_slope_mm_per_day": 0.010693898990982517,
           "top_constituents": [
             "M2",
             "K1",
@@ -850,6 +872,9 @@
             "pickle": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.pkl",
             "json": "/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station057/harmonics/057b/RECENT_2002-12-31_2021-12-31_harmonics.json"
           },
+          "fit_begin": "2002-12-31 23:00:00",
+          "fit_end": "2021-12-31 23:00:00",
+          "fit_observation_rows": 166561,
           "hourly_prediction_rows": 0,
           "hourly_prediction_variable": null,
           "hourly_prediction_start": null,
@@ -865,11 +890,11 @@
             "fd_high_low": null
           },
           "plot_window_rows": 744,
-          "plot_window_rmse_mm": 43.333924098343935,
+          "plot_window_rmse_mm": 43.33392409834404,
           "epoch_rmse_mm": 63.07561194934267,
-          "epoch_residual_mean_mm": 2.9023278191554254e-13,
+          "epoch_residual_mean_mm": 6.281678813885463e-14,
           "epoch_residual_std_mm": 63.075611949342665,
-          "epoch_residual_abs_p95_mm": 123.92905073892666,
+          "epoch_residual_abs_p95_mm": 123.92905073892507,
           "fd_high_low_rows": 0,
           "minute_highlow_prediction_rows": 0,
           "minute_highlow_time_variable": null,
@@ -887,8 +912,13 @@
         "time_series_id": 617,
         "id_from_source": "000057B",
         "resolution_rule": "rq_exact_id_from_source",
-        "epoch_id_by_name": {},
-        "write_epochs": false
+        "epoch_id_by_name": {
+          "NTDE_2002-2020": 1857,
+          "NTDE_1983-2001": 1858,
+          "IPCC-AR6_1995-2014": 1859,
+          "RECENT_2002-12-31_2021-12-31": 1860
+        },
+        "write_epochs": true
       },
       "database_datum_sync": {
         "record_id": "057b",
@@ -898,7 +928,7 @@
         "input_basis_code": "research_quality",
         "input_basis_id": 1,
         "datum_id_by_epoch_and_short_name": {},
-        "rows_planned": 0,
+        "rows_planned": 52,
         "rows_written": 0,
         "write_datums": false
       },
@@ -911,7 +941,7 @@
         "input_basis_id": 1,
         "constituent_id_by_epoch_and_short_name": {},
         "missing_definition_short_names": [],
-        "rows_planned": 0,
+        "rows_planned": 272,
         "rows_written": 0,
         "write_constituents": false
       },
@@ -922,14 +952,14 @@
         "id_from_source": "000057B",
         "input_basis_code": "research_quality",
         "input_basis_id": 1,
-        "resolution_id": 0,
-        "rows_planned": 0,
+        "resolution_id": 1,
+        "rows_planned": 1025606,
         "rows_deleted": 0,
         "rows_written": 0,
         "rows_skipped": 0,
         "write_tide_predictions": false,
         "notes": [
-          "No epoch IDs available."
+          "RQ hourly prediction bounded by date_range_by_time_series_quality: 1905-01-01 10:00:00 to 2021-12-31 23:00:00."
         ]
       },
       "database_high_low_prediction_sync": {
@@ -939,13 +969,13 @@
         "id_from_source": "000057B",
         "input_basis_code": "research_quality",
         "input_basis_id": 1,
-        "rows_planned": 0,
+        "rows_planned": 164952,
         "rows_deleted": 0,
         "rows_written": 0,
         "rows_skipped": 0,
         "write_high_low_predictions": false,
         "notes": [
-          "No epoch IDs available."
+          "RQ high/low prediction generated for DB write from date_range_by_time_series_quality: 1905-01-01 10:00:00 to 2021-12-31 23:00:00."
         ]
       }
     }

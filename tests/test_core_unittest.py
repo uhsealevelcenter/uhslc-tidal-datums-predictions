@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dataclasses import replace
 
-from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, build_prediction_save_plan, cap_prediction_end, clean_hourly_dataframe, compute_datums, determine_update_cycle, fetch_station_metadata_index, fit_harmonics, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, predict_minute_high_low, extract_daily_high_low, extract_daily_high_low_chunked, saved_prediction_epoch_items, save_harmonic_result, save_netcdf, select_epochs, select_primary_prediction_epoch, select_recent_epoch, strip_harmonic_result
+from core import SwitchLevel, build_datums_only_dataset, build_netcdf_dataset, build_netcdf_skill_text, build_prediction_save_plan, cap_prediction_end, clean_hourly_dataframe, compute_datums, determine_update_cycle, fetch_station_metadata_index, fit_harmonics, prepare_harmonic_fit_dataframe, get_netcdf_skill_reference, get_rq_metadata_span, get_station_metadata, list_rq_versions, load_harmonic_result, parse_switch_din, predict_from_harmonics, predict_fd_high_low, predict_minute_high_low, extract_daily_high_low, extract_daily_high_low_chunked, saved_prediction_epoch_items, save_harmonic_result, save_netcdf, select_epochs, select_primary_prediction_epoch, select_recent_epoch, strip_harmonic_result
 
 from tidal_config import PREDICTION_POLICY
 
@@ -121,6 +121,21 @@ class TestTidalCore(unittest.TestCase):
         self.assertEqual(epochs[1].start, pd.Timestamp('1982-01-01 00:00:00'))
         self.assertEqual(epochs[1].end, pd.Timestamp('2000-12-31 23:00:00'))
 
+    def test_prepare_harmonic_fit_dataframe_defines_actual_fit_window(self):
+        df = pd.DataFrame(
+            {
+                "time": pd.date_range("2002-01-01 00:00:00", periods=6, freq="1h"),
+                "sea_level": [np.nan, 10.0, 11.0, -32767, 12.0, np.nan],
+            }
+        )
+    
+        fit_df = prepare_harmonic_fit_dataframe(df)
+    
+        self.assertEqual(len(fit_df), 3)
+        self.assertEqual(fit_df["time"].min(), pd.Timestamp("2002-01-01 01:00:00"))
+        self.assertEqual(fit_df["time"].max(), pd.Timestamp("2002-01-01 04:00:00"))
+        self.assertEqual(fit_df["sea_level"].tolist(), [10.0, 11.0, 12.0])
+
     def test_compute_datums(self):
         df = self.synthetic_hourly()
         pred = pd.DataFrame({
@@ -154,6 +169,87 @@ class TestTidalCore(unittest.TestCase):
         pred = predict_from_harmonics(hr, pd.Timestamp('2002-04-01 00:00:00'), pd.Timestamp('2002-04-03 23:00:00'))
         self.assertEqual(len(pred), 72)
         self.assertTrue(np.isfinite(pred['prediction_mm']).all())
+
+    def test_predict_from_harmonics_chunked_matches_direct_hourly(self):
+        df = self.synthetic_hourly(
+            start="2002-01-01 00:00:00",
+            end="2002-03-31 23:00:00",
+        )
+        hr = fit_harmonics(df, latitude=21.3)
+    
+        start = pd.Timestamp("2002-02-01 00:00:00")
+        end = pd.Timestamp("2002-02-10 23:00:00")
+    
+        direct = predict_from_harmonics(
+            hr,
+            start,
+            end,
+            freq="1h",
+            max_points_per_chunk=0,
+        )
+    
+        chunked = predict_from_harmonics(
+            hr,
+            start,
+            end,
+            freq="1h",
+            max_points_per_chunk=24,
+        )
+    
+        self.assertEqual(len(chunked), len(direct))
+    
+        np.testing.assert_array_equal(
+            chunked["time"].to_numpy(),
+            direct["time"].to_numpy(),
+        )
+    
+        np.testing.assert_allclose(
+            chunked["prediction_mm"].to_numpy(),
+            direct["prediction_mm"].to_numpy(),
+            rtol=1e-10,
+            atol=1e-10,
+        )
+    
+    
+    def test_predict_from_harmonics_chunked_matches_direct_minute(self):
+        df = self.synthetic_hourly(
+            start="2002-01-01 00:00:00",
+            end="2002-03-31 23:00:00",
+        )
+        hr = fit_harmonics(df, latitude=21.3)
+    
+        start = pd.Timestamp("2002-02-01 00:00:00")
+        end = pd.Timestamp("2002-02-02 23:59:00")
+    
+        direct = predict_from_harmonics(
+            hr,
+            start,
+            end,
+            freq="1min",
+            max_points_per_chunk=0,
+        )
+    
+        chunked = predict_from_harmonics(
+            hr,
+            start,
+            end,
+            freq="1min",
+            max_points_per_chunk=500,
+        )
+    
+        self.assertEqual(len(chunked), len(direct))
+    
+        np.testing.assert_array_equal(
+            chunked["time"].to_numpy(),
+            direct["time"].to_numpy(),
+        )
+    
+        np.testing.assert_allclose(
+            chunked["prediction_mm"].to_numpy(),
+            direct["prediction_mm"].to_numpy(),
+            rtol=1e-10,
+            atol=1e-10,
+        )
 
     def test_harmonic_artifact_roundtrip(self):
         df = self.synthetic_hourly(start='2002-01-01 00:00:00', end='2002-03-31 23:00:00')

@@ -18,16 +18,14 @@ Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predic
 - Station name: Baltra
 - Station kind: FD
 - NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station003/netcdf/003.nc`
-- Database sync: `time_series_id=52`, `id_from_source=000003B`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=False`
-- Database epoch IDs: none; dry-run/no-write mode
-- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database sync: `time_series_id=52`, `id_from_source=000003B`, `input_basis=best_available`, `resolution_rule=fd_unversioned_source_resolved_by_database`, `write_epochs=True`
+- Database epoch IDs: `NTDE_2002-2020=1830, NTDE_1983-2001=1831, IPCC-AR6_1995-2014=1832, RECENT_2007-04-30_2026-04-30=1833`
+- Database datum sync: `rows_planned=52`, `rows_written=0`, `write_datums=False`
 - Database datum IDs: none; dry-run/no-write mode
-- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent sync: `rows_planned=272`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
 - Database constituent IDs: none; dry-run/no-write mode
-- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
-- Database tide prediction notes: `No epoch IDs available.`
-- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
-- Database high/low prediction notes: `No epoch IDs available.`
+- Database tide prediction sync: `rows_planned=1014825`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database high/low prediction sync: `rows_planned=8467`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
 - Prediction basis epoch: `NTDE_2002-2020`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1985-03-25 15:00:00` to `2100-12-31 23:00:00` (1014825 rows)
@@ -43,16 +41,16 @@ Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predic
 - Station name: Baltra, Galapagos
 - Station kind: RQ
 - NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station003/netcdf/003a.nc`
-- Database sync: `time_series_id=1`, `id_from_source=000003A`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
-- Database epoch IDs: none; dry-run/no-write mode
-- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database sync: `time_series_id=1`, `id_from_source=000003A`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=True`
+- Database epoch IDs: `RECENT_1968-06-01_1977-12-31=1834`
+- Database datum sync: `rows_planned=13`, `rows_written=0`, `write_datums=False`
 - Database datum IDs: none; dry-run/no-write mode
-- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent sync: `rows_planned=68`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
 - Database constituent IDs: none; dry-run/no-write mode
-- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
-- Database tide prediction notes: `No epoch IDs available.`
-- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
-- Database high/low prediction notes: `No epoch IDs available.`
+- Database tide prediction sync: `rows_planned=84017`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `RQ hourly prediction bounded by date_range_by_time_series_quality: 1968-06-01 06:00:00 to 1977-12-31 22:00:00.`
+- Database high/low prediction sync: `rows_planned=13528`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `RQ high/low prediction generated for DB write from date_range_by_time_series_quality: 1968-06-01 06:00:00 to 1977-12-31 22:00:00.`
 - Prediction basis epoch: `RECENT_1968-06-01_1977-12-31`
 - Prediction scope: `record_span`
 - Saved hourly prediction: `hourly_prediction_primary` from `1968-06-01 06:00:00` to `1977-12-31 22:00:00` (84017 rows)
@@ -65,16 +63,16 @@ Output root: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predic
 - Station name: Baltra
 - Station kind: RQ
 - NetCDF: `/home/nwstg/uhslc-tidal-datums-predictions/artifacts/datums_predictions/station003/netcdf/003b.nc`
-- Database sync: `time_series_id=52`, `id_from_source=000003B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=False`
-- Database epoch IDs: none; dry-run/no-write mode
-- Database datum sync: `rows_planned=0`, `rows_written=0`, `write_datums=False`
+- Database sync: `time_series_id=52`, `id_from_source=000003B`, `input_basis=research_quality`, `resolution_rule=rq_exact_id_from_source`, `write_epochs=True`
+- Database epoch IDs: `NTDE_1983-2001=1835, IPCC-AR6_1995-2014=1836, RECENT_1999-12-31_2018-12-31=1837`
+- Database datum sync: `rows_planned=39`, `rows_written=0`, `write_datums=False`
 - Database datum IDs: none; dry-run/no-write mode
-- Database constituent sync: `rows_planned=0`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
+- Database constituent sync: `rows_planned=204`, `rows_written=0`, `missing_definitions=0`, `write_constituents=False`
 - Database constituent IDs: none; dry-run/no-write mode
-- Database tide prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
-- Database tide prediction notes: `No epoch IDs available.`
-- Database high/low prediction sync: `rows_planned=0`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
-- Database high/low prediction notes: `No epoch IDs available.`
+- Database tide prediction sync: `rows_planned=348633`, `rows_deleted=0`, `rows_written=0`, `write_tide_predictions=False`
+- Database tide prediction notes: `RQ hourly prediction bounded by date_range_by_time_series_quality: 1985-03-25 15:00:00 to 2024-12-31 23:00:00.`
+- Database high/low prediction sync: `rows_planned=56138`, `rows_deleted=0`, `rows_written=0`, `write_high_low_predictions=False`
+- Database high/low prediction notes: `RQ high/low prediction generated for DB write from date_range_by_time_series_quality: 1985-03-25 15:00:00 to 2024-12-31 23:00:00.`
 - Prediction basis epoch: `NTDE_1983-2001`
 - Prediction scope: `long_future`
 - Saved hourly prediction: `hourly_prediction_primary` from `1985-03-25 15:00:00` to `2100-12-31 23:00:00` (1014825 rows)

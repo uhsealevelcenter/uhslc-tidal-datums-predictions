@@ -33,6 +33,7 @@ from core import (
     fetch_fd_hourly,
     fetch_rq_hourly,
     fit_harmonics,
+    prepare_harmonic_fit_dataframe,
     load_harmonic_result,
     predict_minute_high_low,
     predict_from_harmonics,
@@ -852,8 +853,8 @@ def _build_epoch_db_dataframe(
                 "epoch_name": ep["name"],
                 "epoch_source": ep["source"],
                 "epoch_role": ep["role"],
-                "fit_begin": pd.Timestamp(ep["start"]),
-                "fit_end": pd.Timestamp(ep["end"]),
+                "fit_begin": pd.Timestamp(epoch_summary["fit_begin"]),
+                "fit_end": pd.Timestamp(epoch_summary["fit_end"]),
                 "completion_fraction": ep.get("completion_fraction"),
                 "n_expected": ep.get("n_expected"),
                 "n_valid": ep.get("n_valid"),
@@ -886,7 +887,9 @@ def _log_epoch_db_plan(record: dict[str, Any]) -> None:
             f"{'WOULD UPSERT' if not DATABASE_POLICY.write_epochs else 'UPSERT'} epoch "
             f"{ep['name']} | primary={epoch_summary['is_prediction_basis']} | "
             f"is_prediction_basis={epoch_summary['is_prediction_basis']} | "
-            f"source={ep['source']} | role={ep['role']}"
+            f"source={ep['source']} | role={ep['role']} | "
+            f"date_window={ep['start']} to {ep['end']} | "
+            f"fit_window={epoch_summary.get('fit_begin')} to {epoch_summary.get('fit_end')}"
         )
 
 
@@ -2157,6 +2160,20 @@ def _delete_tide_prediction_windows(
     return rows_deleted
 
 
+def _prediction_insert_batch_size() -> int:
+    batch_size = int(DATABASE_POLICY.prediction_insert_batch_size)
+    if batch_size <= 0:
+        raise ValueError(
+            "DATABASE_POLICY.prediction_insert_batch_size must be a positive integer."
+        )
+    return batch_size
+
+
+def _iter_dataframe_batches(df: pd.DataFrame, batch_size: int):
+    for start in range(0, len(df), batch_size):
+        yield df.iloc[start : start + batch_size]
+
+
 def _insert_tide_prediction_rows(
     conn,
     prediction_df: pd.DataFrame,
@@ -2164,16 +2181,7 @@ def _insert_tide_prediction_rows(
     if prediction_df.empty:
         return 0
 
-    rows = [
-        (
-            pd.Timestamp(row["time"]).to_pydatetime(),
-            float(row["value"]),
-            int(row["epoch_id"]),
-            int(row["resolution_id"]),
-            int(row["time_series_id"]),
-        )
-        for row in prediction_df.to_dict("records")
-    ]
+    batch_size = _prediction_insert_batch_size()
 
     insert_sql = """
         INSERT INTO public.tide_prediction (
@@ -2189,15 +2197,47 @@ def _insert_tide_prediction_rows(
             value = EXCLUDED.value
     """
 
-    with conn.cursor() as cur:
-        execute_values(
-            cur,
-            insert_sql,
-            rows,
-            page_size=int(DATABASE_POLICY.prediction_insert_batch_size),
-        )
+    rows_written = 0
+    insert_columns = [
+        "time",
+        "value",
+        "epoch_id",
+        "resolution_id",
+        "time_series_id",
+    ]
 
-    return len(rows)
+    with conn.cursor() as cur:
+        for batch_df in _iter_dataframe_batches(prediction_df, batch_size):
+            rows = [
+                (
+                    pd.Timestamp(time_value).to_pydatetime(),
+                    float(value),
+                    int(epoch_id),
+                    int(resolution_id),
+                    int(time_series_id),
+                )
+                for (
+                    time_value,
+                    value,
+                    epoch_id,
+                    resolution_id,
+                    time_series_id,
+                ) in batch_df.loc[:, insert_columns].itertuples(index=False, name=None)
+            ]
+
+            if not rows:
+                continue
+
+            execute_values(
+                cur,
+                insert_sql,
+                rows,
+                page_size=batch_size,
+            )
+
+            rows_written += len(rows)
+
+    return rows_written
 
 
 def _sync_record_tide_predictions_to_database(
@@ -2570,16 +2610,7 @@ def _insert_high_low_prediction_rows(
     if high_low_df.empty:
         return 0
 
-    rows = [
-        (
-            pd.Timestamp(row["time"]).to_pydatetime(),
-            float(row["value"]),
-            str(row["tide_type"]),
-            int(row["epoch_id"]),
-            int(row["time_series_id"]),
-        )
-        for row in high_low_df.to_dict("records")
-    ]
+    batch_size = _prediction_insert_batch_size()
 
     insert_sql = """
         INSERT INTO public.high_low_prediction (
@@ -2596,15 +2627,47 @@ def _insert_high_low_prediction_rows(
             tide_type = EXCLUDED.tide_type
     """
 
-    with conn.cursor() as cur:
-        execute_values(
-            cur,
-            insert_sql,
-            rows,
-            page_size=int(DATABASE_POLICY.prediction_insert_batch_size),
-        )
+    rows_written = 0
+    insert_columns = [
+        "time",
+        "value",
+        "tide_type",
+        "epoch_id",
+        "time_series_id",
+    ]
 
-    return len(rows)
+    with conn.cursor() as cur:
+        for batch_df in _iter_dataframe_batches(high_low_df, batch_size):
+            rows = [
+                (
+                    pd.Timestamp(time_value).to_pydatetime(),
+                    float(value),
+                    str(tide_type),
+                    int(epoch_id),
+                    int(time_series_id),
+                )
+                for (
+                    time_value,
+                    value,
+                    tide_type,
+                    epoch_id,
+                    time_series_id,
+                ) in batch_df.loc[:, insert_columns].itertuples(index=False, name=None)
+            ]
+
+            if not rows:
+                continue
+
+            execute_values(
+                cur,
+                insert_sql,
+                rows,
+                page_size=batch_size,
+            )
+
+            rows_written += len(rows)
+
+    return rows_written
 
 
 def _sync_record_high_low_predictions_to_database(
@@ -3445,7 +3508,19 @@ def _run_record(
     for ep in epochs:
         log(f"{record_id} {ep.name}: fitting harmonics and calculating datums")
         sub = df[(df["time"] >= ep.start) & (df["time"] <= ep.end)].copy()
-        fitted_harmonics = fit_harmonics(sub, latitude=latitude)
+        fit_observed = prepare_harmonic_fit_dataframe(sub)
+
+        if len(fit_observed) < 24 * 30:
+            raise ValueError(
+                f"{record_id} {ep.name}: Need at least ~30 days of valid hourly "
+                f"observations for harmonic analysis after cleaning; found "
+                f"{len(fit_observed)} rows."
+            )
+
+        fit_begin = pd.Timestamp(fit_observed["time"].min())
+        fit_end = pd.Timestamp(fit_observed["time"].max())
+
+        fitted_harmonics = fit_harmonics(fit_observed, latitude=latitude)
         harmonic_path = outdir / "harmonics" / record_id / f"{ep.name}_harmonics.pkl"
         harmonic_artifacts[ep.name] = save_harmonic_result(
             fitted_harmonics,
@@ -3457,6 +3532,9 @@ def _run_record(
                 "epoch_name": ep.name,
                 "epoch_start": str(ep.start),
                 "epoch_end": str(ep.end),
+                "fit_begin": str(fit_begin),
+                "fit_end": str(fit_end),
+                "fit_observation_rows": int(len(fit_observed)),
                 "latitude": float(latitude),
             },
         )
@@ -3472,7 +3550,7 @@ def _run_record(
         harmonics_by_epoch[ep.name] = harmonics_summary
         minute_highlow = pd.DataFrame(columns=["time", "height_mm", "type"])
 
-        observed = sub.dropna(subset=["sea_level"])[["time", "sea_level"]].copy()
+        observed = fit_observed[["time", "sea_level"]].copy()
         datum_plot = _plot_datums(
             plot_dir / f"{ep.name}_datums.png",
             sub,
@@ -3518,6 +3596,9 @@ def _run_record(
             "harmonic_slope_mm_per_day": float(harmonics.slope_mm_per_day),
             "top_constituents": harmonics.constituent[:12],
             "harmonic_artifact": harmonic_artifacts[ep.name],
+            "fit_begin": fit_begin,
+            "fit_end": fit_end,
+            "fit_observation_rows": int(len(fit_observed)),
 
             "hourly_prediction_rows": 0,
             "hourly_prediction_variable": None,
@@ -3554,7 +3635,7 @@ def _run_record(
 
         epoch_summary_by_name[ep.name] = epoch_summary
         epoch_summaries.append(epoch_summary)
-        del harmonics, sub, epoch_hourly_pred, minute_highlow
+        del harmonics, sub, fit_observed, epoch_hourly_pred, minute_highlow
         gc.collect()
 
     prediction_items = saved_prediction_epoch_items(epochs, prediction_plan)
