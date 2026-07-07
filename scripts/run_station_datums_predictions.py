@@ -850,9 +850,9 @@ def _build_epoch_db_dataframe(
                 "is_prediction_basis": bool(epoch_summary["is_prediction_basis"]),
                 "time_series_id": int(time_series_id),
                 "input_basis_id": int(input_basis_id),
-                "epoch_name": ep["name"],
-                "epoch_source": ep["source"],
-                "epoch_role": ep["role"],
+                "name": ep["name"],
+                "source": ep["source"],
+                "role": ep["role"],
                 "fit_begin": pd.Timestamp(epoch_summary["fit_begin"]),
                 "fit_end": pd.Timestamp(epoch_summary["fit_end"]),
                 "completion_fraction": ep.get("completion_fraction"),
@@ -1580,7 +1580,7 @@ def _write_constituents_to_database(
                     INSERT INTO public.constituent (
                         amplitude_mm,
                         phase_deg,
-                        constituent_order,
+                        "order",
                         epoch_id,
                         time_series_id,
                         definition_id
