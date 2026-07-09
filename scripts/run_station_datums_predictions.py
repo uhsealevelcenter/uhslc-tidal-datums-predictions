@@ -384,6 +384,39 @@ def _tsdb_connection():
         conn.close()
 
 
+def _validate_database_write_policy_or_die() -> None:
+    """Reject DB write combinations that can create partial operational state."""
+
+    core_write_flags = {
+        "write_epochs": bool(DATABASE_POLICY.write_epochs),
+        "write_datums": bool(DATABASE_POLICY.write_datums),
+        "write_constituents": bool(DATABASE_POLICY.write_constituents),
+    }
+
+    if any(core_write_flags.values()) and not all(core_write_flags.values()):
+        raise RuntimeError(
+            "Invalid DATABASE_POLICY core write combination. Operational core "
+            "table writes are atomic now, so write_epochs, write_datums, and "
+            "write_constituents must be all True or all False. "
+            f"Current values: {core_write_flags}."
+        )
+
+    prediction_write_flags = {
+        "write_tide_predictions": bool(DATABASE_POLICY.write_tide_predictions),
+        "write_high_low_predictions": bool(DATABASE_POLICY.write_high_low_predictions),
+        "write_prediction_auto_cleanup": bool(DATABASE_POLICY.write_prediction_auto_cleanup),
+        "write_prediction_cutover_cleanup": bool(DATABASE_POLICY.write_prediction_cutover_cleanup),
+    }
+
+    if any(prediction_write_flags.values()) and not all(core_write_flags.values()):
+        raise RuntimeError(
+            "Invalid DATABASE_POLICY prediction write combination. Prediction "
+            "writes/cleanups require atomic core writes first, so write_epochs, "
+            "write_datums, and write_constituents must all be True. "
+            f"Core values: {core_write_flags}; prediction values: {prediction_write_flags}."
+        )
+
+
 def _time_series_id_from_source_prefix(station_id: str) -> str:
     """Return the zero-padded DB id_from_source prefix for a UHSLC station."""
 
@@ -893,6 +926,219 @@ def _log_epoch_db_plan(record: dict[str, Any]) -> None:
         )
 
 
+def _coerce_database_parameter(value: Any) -> Any:
+    """Convert pandas/numpy scalar values into DB-driver-friendly parameters."""
+
+    if _is_missing_database_value(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime()
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    return value
+
+
+def _validate_epoch_db_dataframe(epoch_df: pd.DataFrame) -> tuple[int, int]:
+    required_columns = {
+        "date_begin",
+        "date_end",
+        "last_update",
+        "primary",
+        "is_prediction_basis",
+        "time_series_id",
+        "input_basis_id",
+        "name",
+        "source",
+        "role",
+        "fit_begin",
+        "fit_end",
+        "completion_fraction",
+        "n_expected",
+        "n_valid",
+        "tide_type",
+        "fit_rmse_mm",
+        "selection_rank",
+        "harmonic_mean_mm",
+        "harmonic_slope_mm_per_day",
+        "harmonic_constituent_count",
+    }
+
+    if not required_columns.issubset(epoch_df.columns):
+        missing = required_columns - set(epoch_df.columns)
+        raise ValueError(f"ERROR: Epoch dataframe is missing required columns: {missing}")
+
+    if epoch_df.empty:
+        raise ValueError("ERROR: Epoch dataframe is empty; no rows to upsert.")
+
+    non_null_columns = {
+        "date_begin",
+        "date_end",
+        "last_update",
+        "primary",
+        "is_prediction_basis",
+        "time_series_id",
+        "input_basis_id",
+        "name",
+        "source",
+        "role",
+        "fit_begin",
+        "fit_end",
+        "selection_rank",
+    }
+
+    null_counts = epoch_df[list(non_null_columns)].isnull().sum()
+    bad_null_counts = null_counts[null_counts > 0]
+
+    if not bad_null_counts.empty:
+        raise ValueError(
+            "ERROR: Epoch dataframe contains null values in non-null columns: "
+            f"{bad_null_counts.to_dict()}"
+        )
+
+    unique_time_series_ids = epoch_df["time_series_id"].dropna().unique()
+    unique_input_basis_ids = epoch_df["input_basis_id"].dropna().unique()
+
+    if len(unique_time_series_ids) != 1:
+        raise ValueError("ERROR: Epoch dataframe must contain exactly one time_series_id.")
+
+    if len(unique_input_basis_ids) != 1:
+        raise ValueError("ERROR: Epoch dataframe must contain exactly one input_basis_id.")
+
+    primary_count = int(epoch_df["primary"].fillna(False).astype(bool).sum())
+    basis_count = int(epoch_df["is_prediction_basis"].fillna(False).astype(bool).sum())
+
+    if primary_count != 1:
+        raise ValueError(f"ERROR: Expected exactly one primary epoch row; found {primary_count}.")
+
+    if basis_count != 1:
+        raise ValueError(
+            f"ERROR: Expected exactly one is_prediction_basis epoch row; found {basis_count}."
+        )
+
+    return int(unique_time_series_ids[0]), int(unique_input_basis_ids[0])
+
+
+def _upsert_epochs_to_database(conn, epoch_df: pd.DataFrame) -> dict[str, int]:
+    """Upsert epoch rows without committing. Caller owns commit/rollback."""
+
+    time_series_id, input_basis_id = _validate_epoch_db_dataframe(epoch_df)
+
+    print(
+        f"LOG: Prepared {len(epoch_df)} epoch row(s) for time_series_id={time_series_id}, "
+        f"input_basis_id={input_basis_id}. execute_writes=True."
+    )
+
+    insert_columns = [
+        "date_begin",
+        "date_end",
+        "last_update",
+        "primary",
+        "is_prediction_basis",
+        "time_series_id",
+        "input_basis_id",
+        "name",
+        "source",
+        "role",
+        "fit_begin",
+        "fit_end",
+        "completion_fraction",
+        "n_expected",
+        "n_valid",
+        "tide_type",
+        "fit_rmse_mm",
+        "selection_rank",
+        "harmonic_mean_mm",
+        "harmonic_slope_mm_per_day",
+        "harmonic_constituent_count",
+    ]
+
+    rows = [
+        tuple(_coerce_database_parameter(value) for value in row)
+        for row in epoch_df.loc[:, insert_columns].itertuples(index=False, name=None)
+    ]
+
+    insert_sql = """
+        INSERT INTO public.epoch (
+            date_begin,
+            date_end,
+            last_update,
+            "primary",
+            is_prediction_basis,
+            time_series_id,
+            input_basis_id,
+            name,
+            "source",
+            "role",
+            fit_begin,
+            fit_end,
+            completion_fraction,
+            n_expected,
+            n_valid,
+            tide_type,
+            fit_rmse_mm,
+            selection_rank,
+            harmonic_mean_mm,
+            harmonic_slope_mm_per_day,
+            harmonic_constituent_count
+        )
+        VALUES %s
+        ON CONFLICT (time_series_id, input_basis_id, name)
+        DO UPDATE SET
+            date_begin = EXCLUDED.date_begin,
+            date_end = EXCLUDED.date_end,
+            last_update = EXCLUDED.last_update,
+            "primary" = EXCLUDED."primary",
+            is_prediction_basis = EXCLUDED.is_prediction_basis,
+            "source" = EXCLUDED."source",
+            "role" = EXCLUDED."role",
+            fit_begin = EXCLUDED.fit_begin,
+            fit_end = EXCLUDED.fit_end,
+            completion_fraction = EXCLUDED.completion_fraction,
+            n_expected = EXCLUDED.n_expected,
+            n_valid = EXCLUDED.n_valid,
+            tide_type = EXCLUDED.tide_type,
+            fit_rmse_mm = EXCLUDED.fit_rmse_mm,
+            selection_rank = EXCLUDED.selection_rank,
+            harmonic_mean_mm = EXCLUDED.harmonic_mean_mm,
+            harmonic_slope_mm_per_day = EXCLUDED.harmonic_slope_mm_per_day,
+            harmonic_constituent_count = EXCLUDED.harmonic_constituent_count
+        RETURNING id, name
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE public.epoch
+            SET
+                "primary" = false,
+                is_prediction_basis = false
+            WHERE time_series_id = %s
+              AND input_basis_id = %s
+              AND ("primary" IS TRUE OR is_prediction_basis IS TRUE)
+            """,
+            (time_series_id, input_basis_id),
+        )
+
+        returned_rows = execute_values(
+            cur,
+            insert_sql,
+            rows,
+            fetch=True,
+        )
+
+    epoch_id_by_name = {str(name): int(epoch_id) for epoch_id, name in returned_rows}
+
+    print(
+        f"LOG: Successfully upserted {len(epoch_id_by_name)} epoch row(s) "
+        f"for time_series_id={time_series_id}, input_basis_id={input_basis_id}."
+    )
+
+    return epoch_id_by_name
+
+
 def _sync_record_epochs_to_database(
     record: dict[str, Any],
     *,
@@ -1164,7 +1410,10 @@ def _log_datum_db_plan(record: dict[str, Any], datum_df: pd.DataFrame) -> None:
 def _upsert_datums_to_database(
     conn,
     datum_df: pd.DataFrame,
+    *,
+    manage_transaction: bool = True,
 ) -> dict[str, dict[str, int]]:
+    """Upsert datum rows. By default owns its transaction for legacy callers."""
     datum_id_by_epoch_and_short_name: dict[str, dict[str, int]] = {}
 
     try:
@@ -1217,10 +1466,12 @@ def _upsert_datums_to_database(
                     short_name
                 ] = datum_id
 
-        conn.commit()
+        if manage_transaction:
+            conn.commit()
 
     except Exception:
-        conn.rollback()
+        if manage_transaction:
+            conn.rollback()
         raise
 
     return datum_id_by_epoch_and_short_name
@@ -1534,6 +1785,8 @@ def _ensure_constituent_definitions(
 def _write_constituents_to_database(
     conn,
     constituent_df: pd.DataFrame,
+    *,
+    manage_transaction: bool = True,
 ) -> dict[str, dict[str, int]]:
     """Replace constituent rows for the current epoch ids exactly.
 
@@ -1605,10 +1858,12 @@ def _write_constituents_to_database(
                     short_name
                 ] = constituent_id
 
-        conn.commit()
+        if manage_transaction:
+            conn.commit()
 
     except Exception:
-        conn.rollback()
+        if manage_transaction:
+            conn.rollback()
         raise
 
     return constituent_id_by_epoch_and_short_name
@@ -1728,6 +1983,336 @@ def _sync_record_constituents_to_database(
             ),
             write_constituents=bool(DATABASE_POLICY.write_constituents),
         )
+
+    finally:
+        conn.close()
+
+
+def _build_epoch_sync_result_from_target(
+    *,
+    record: dict[str, Any],
+    write_target: EpochWriteTarget,
+    epoch_id_by_name: dict[str, int],
+) -> EpochSyncResult:
+    return EpochSyncResult(
+        record_id=str(record["record_id"]),
+        station_kind=str(record["station_kind"]),
+        source_record_id=write_target.source_record_id,
+        input_basis_code=write_target.input_basis_code,
+        input_basis_id=int(write_target.input_basis_id),
+        time_series_id=int(write_target.time_series_id),
+        id_from_source=write_target.id_from_source,
+        resolution_rule=write_target.resolution_rule,
+        epoch_id_by_name=epoch_id_by_name,
+        write_epochs=bool(DATABASE_POLICY.write_epochs),
+    )
+
+
+def _validate_core_table_write_counts(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    datum_df: pd.DataFrame,
+    datum_ids: dict[str, dict[str, int]],
+    constituent_df: pd.DataFrame,
+    constituent_ids: dict[str, dict[str, int]],
+) -> None:
+    expected_epoch_names = {
+        str(epoch_summary["epoch"]["name"])
+        for epoch_summary in record["epochs"]
+    }
+
+    if set(epoch_sync.epoch_id_by_name) != expected_epoch_names:
+        raise RuntimeError(
+            f"{record['record_id']}: atomic core write returned unexpected epoch names. "
+            f"expected={sorted(expected_epoch_names)}, "
+            f"returned={sorted(epoch_sync.epoch_id_by_name)}"
+        )
+
+    written_datum_count = sum(len(short_name_ids) for short_name_ids in datum_ids.values())
+    if written_datum_count != len(datum_df):
+        raise RuntimeError(
+            f"{record['record_id']}: atomic core datum write returned "
+            f"{written_datum_count} row id(s), but planned {len(datum_df)} row(s)."
+        )
+
+    written_constituent_count = sum(
+        len(short_name_ids) for short_name_ids in constituent_ids.values()
+    )
+    if written_constituent_count != len(constituent_df):
+        raise RuntimeError(
+            f"{record['record_id']}: atomic core constituent write returned "
+            f"{written_constituent_count} row id(s), but planned "
+            f"{len(constituent_df)} row(s)."
+        )
+
+    required_datum_short_names = set(DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME.values())
+
+    planned_datum_short_names_by_epoch = (
+        datum_df.groupby("epoch_name")["definition_short_name"]
+        .apply(lambda values: {str(value) for value in values})
+        .to_dict()
+        if not datum_df.empty
+        else {}
+    )
+
+    for epoch_name in expected_epoch_names:
+        planned_short_names = planned_datum_short_names_by_epoch.get(epoch_name, set())
+        missing_planned_short_names = sorted(
+            required_datum_short_names - planned_short_names
+        )
+
+        if missing_planned_short_names:
+            raise RuntimeError(
+                f"{record['record_id']}: atomic core write planned incomplete "
+                f"datum rows for epoch {epoch_name!r}; "
+                f"missing={missing_planned_short_names}."
+            )
+
+        written_short_names = set(datum_ids.get(epoch_name, {}).keys())
+        missing_written_short_names = sorted(
+            required_datum_short_names - written_short_names
+        )
+
+        if missing_written_short_names:
+            raise RuntimeError(
+                f"{record['record_id']}: atomic core write returned incomplete "
+                f"datum rows for epoch {epoch_name!r}; "
+                f"missing={missing_written_short_names}."
+            )
+
+
+def _sync_record_core_tables_to_database(
+    record: dict[str, Any],
+    *,
+    last_update: pd.Timestamp,
+) -> tuple[EpochSyncResult | None, DatumSyncResult | None, ConstituentSyncResult | None]:
+    """Sync epoch, datum, and constituent rows as one atomic core transaction."""
+
+    if (
+        not DATABASE_POLICY.log_epoch_plan
+        and not DATABASE_POLICY.log_datum_plan
+        and not DATABASE_POLICY.log_constituent_plan
+        and not DATABASE_POLICY.write_epochs
+        and not DATABASE_POLICY.write_datums
+        and not DATABASE_POLICY.write_constituents
+    ):
+        return None, None, None
+
+    _validate_database_write_policy_or_die()
+
+    CommonUtils, TSDataProcessor = _load_database_tools()
+    env_utils = CommonUtils()
+    ts_processor = TSDataProcessor()
+    conn = env_utils.connect_2_tsdb()
+
+    try:
+        input_basis_code = _input_basis_code_for_record(record["station_kind"])
+        input_basis_id = ts_processor.query_prediction_input_basis_id_tsdb(
+            conn,
+            input_basis_code,
+        )
+
+        write_target = _resolve_epoch_write_target(
+            conn=conn,
+            ts_processor=ts_processor,
+            record=record,
+            input_basis_id=input_basis_id,
+        )
+
+        log(
+            f"{record['record_id']}: resolved epoch DB target | "
+            f"source_record_id={write_target.source_record_id} | "
+            f"input_basis={write_target.input_basis_code} | "
+            f"time_series_id={write_target.time_series_id} | "
+            f"id_from_source={write_target.id_from_source} | "
+            f"resolution_rule={write_target.resolution_rule}"
+        )
+
+        epoch_df = _build_epoch_db_dataframe(
+            record=record,
+            time_series_id=write_target.time_series_id,
+            input_basis_id=input_basis_id,
+            last_update=last_update,
+        )
+
+        _log_epoch_db_plan(record)
+
+        if not DATABASE_POLICY.write_epochs:
+            epoch_sync = _build_epoch_sync_result_from_target(
+                record=record,
+                write_target=write_target,
+                epoch_id_by_name={},
+            )
+
+            log(
+                f"{record['record_id']}: database datum sync skipped | "
+                "no epoch IDs available in dry-run/no-write mode"
+            )
+            datum_sync = DatumSyncResult(
+                record_id=str(record["record_id"]),
+                station_kind=str(record["station_kind"]),
+                time_series_id=int(epoch_sync.time_series_id),
+                id_from_source=str(epoch_sync.id_from_source),
+                input_basis_code=str(epoch_sync.input_basis_code),
+                input_basis_id=int(epoch_sync.input_basis_id),
+                datum_id_by_epoch_and_short_name={},
+                rows_planned=0,
+                rows_written=0,
+                write_datums=bool(DATABASE_POLICY.write_datums),
+            )
+
+            log(
+                f"{record['record_id']}: database constituent sync skipped | "
+                "no epoch IDs available in dry-run/no-write mode"
+            )
+            constituent_sync = ConstituentSyncResult(
+                record_id=str(record["record_id"]),
+                station_kind=str(record["station_kind"]),
+                time_series_id=int(epoch_sync.time_series_id),
+                id_from_source=str(epoch_sync.id_from_source),
+                input_basis_code=str(epoch_sync.input_basis_code),
+                input_basis_id=int(epoch_sync.input_basis_id),
+                constituent_id_by_epoch_and_short_name={},
+                missing_definition_short_names=[],
+                rows_planned=0,
+                rows_written=0,
+                write_constituents=bool(DATABASE_POLICY.write_constituents),
+            )
+
+            return epoch_sync, datum_sync, constituent_sync
+
+        try:
+            epoch_id_by_name = _upsert_epochs_to_database(conn, epoch_df)
+
+            epoch_sync = _build_epoch_sync_result_from_target(
+                record=record,
+                write_target=write_target,
+                epoch_id_by_name={
+                    str(epoch_name): int(epoch_id)
+                    for epoch_name, epoch_id in epoch_id_by_name.items()
+                },
+            )
+
+            expected_epoch_names = {
+                str(epoch_summary["epoch"]["name"])
+                for epoch_summary in record["epochs"]
+            }
+            returned_epoch_names = set(epoch_sync.epoch_id_by_name)
+
+            if returned_epoch_names != expected_epoch_names:
+                raise RuntimeError(
+                    f"{record['record_id']}: epoch upsert returned unexpected "
+                    f"epoch names. expected={sorted(expected_epoch_names)}, "
+                    f"returned={sorted(returned_epoch_names)}"
+                )
+
+            log(
+                f"{record['record_id']}: database epoch sync complete | "
+                f"epoch_ids={epoch_sync.epoch_id_by_name}"
+            )
+
+            definition_id_by_short_name = _query_datum_definition_id_by_short_name(conn)
+            datum_df = _build_datum_db_dataframe(
+                record=record,
+                epoch_sync=epoch_sync,
+                definition_id_by_short_name=definition_id_by_short_name,
+            )
+            _log_datum_db_plan(record, datum_df)
+
+            datum_id_by_epoch_and_short_name = _upsert_datums_to_database(
+                conn,
+                datum_df,
+                manage_transaction=False,
+            )
+
+            written_datum_count = sum(
+                len(short_name_ids)
+                for short_name_ids in datum_id_by_epoch_and_short_name.values()
+            )
+
+            log(
+                f"{record['record_id']}: database datum sync complete | "
+                f"datum_ids={datum_id_by_epoch_and_short_name}"
+            )
+
+            constituent_df = _build_constituent_db_plan_dataframe(
+                record=record,
+                epoch_sync=epoch_sync,
+            )
+            definition_id_by_short_name = _query_constituent_definition_id_by_short_name(conn)
+            planned_short_names = sorted(
+                set(constituent_df["definition_short_name"].astype(str))
+            )
+            missing_definition_short_names = [
+                short_name
+                for short_name in planned_short_names
+                if short_name not in definition_id_by_short_name
+            ]
+
+            _log_constituent_db_plan(
+                record,
+                constituent_df,
+                missing_definition_short_names=missing_definition_short_names,
+            )
+
+            constituent_id_by_epoch_and_short_name = _write_constituents_to_database(
+                conn,
+                constituent_df,
+                manage_transaction=False,
+            )
+
+            _validate_core_table_write_counts(
+                record=record,
+                epoch_sync=epoch_sync,
+                datum_df=datum_df,
+                datum_ids=datum_id_by_epoch_and_short_name,
+                constituent_df=constituent_df,
+                constituent_ids=constituent_id_by_epoch_and_short_name,
+            )
+
+            conn.commit()
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        log(
+            f"{record['record_id']}: database constituent sync complete | "
+            f"constituent_ids={constituent_id_by_epoch_and_short_name}"
+        )
+
+        datum_sync = DatumSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            datum_id_by_epoch_and_short_name=datum_id_by_epoch_and_short_name,
+            rows_planned=int(len(datum_df)),
+            rows_written=int(written_datum_count),
+            write_datums=bool(DATABASE_POLICY.write_datums),
+        )
+
+        constituent_sync = ConstituentSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            constituent_id_by_epoch_and_short_name=constituent_id_by_epoch_and_short_name,
+            missing_definition_short_names=missing_definition_short_names,
+            rows_planned=int(len(constituent_df)),
+            rows_written=sum(
+                len(short_name_ids)
+                for short_name_ids in constituent_id_by_epoch_and_short_name.values()
+            ),
+            write_constituents=bool(DATABASE_POLICY.write_constituents),
+        )
+
+        return epoch_sync, datum_sync, constituent_sync
 
     finally:
         conn.close()
@@ -3786,8 +4371,10 @@ def _run_record(
 
 
 def _run_station(station_id: str) -> None:
-    REPO_ROOT = Path(__file__).resolve().parents[1]
-    output_root = REPO_ROOT / "artifacts" / "datums_predictions" / f"station{station_id}"
+    output_root = (
+        Path("/srv/htdocs/uhslc.soest.hawaii.edu/tech/datums_predictions_review")
+        / f"station{station_id}"
+    )
     output_root.mkdir(parents=True, exist_ok=True)
     run_last_update = pd.Timestamp.utcnow().tz_localize(None)
     log(f"Starting station {station_id} datums_predictions run")
@@ -3817,23 +4404,15 @@ def _run_station(station_id: str) -> None:
 
     try:
         fd_record = _run_record(station_id, "FD", output_root)
-        fd_epoch_sync = _sync_record_epochs_to_database(
-            fd_record,
-            last_update=run_last_update,
+        fd_epoch_sync, fd_datum_sync, fd_constituent_sync = (
+            _sync_record_core_tables_to_database(
+                fd_record,
+                last_update=run_last_update,
+            )
         )
         fd_record["database_sync"] = None if fd_epoch_sync is None else asdict(fd_epoch_sync)
-
-        fd_datum_sync = _sync_record_datums_to_database(
-            fd_record,
-            epoch_sync=fd_epoch_sync,
-        )
         fd_record["database_datum_sync"] = (
             None if fd_datum_sync is None else asdict(fd_datum_sync)
-        )
-
-        fd_constituent_sync = _sync_record_constituents_to_database(
-            fd_record,
-            epoch_sync=fd_epoch_sync,
         )
         fd_record["database_constituent_sync"] = (
             None if fd_constituent_sync is None else asdict(fd_constituent_sync)
@@ -3918,23 +4497,15 @@ def _run_station(station_id: str) -> None:
 
             continue
 
-        rq_epoch_sync = _sync_record_epochs_to_database(
-            rq_record,
-            last_update=run_last_update,
+        rq_epoch_sync, rq_datum_sync, rq_constituent_sync = (
+            _sync_record_core_tables_to_database(
+                rq_record,
+                last_update=run_last_update,
+            )
         )
         rq_record["database_sync"] = None if rq_epoch_sync is None else asdict(rq_epoch_sync)
-
-        rq_datum_sync = _sync_record_datums_to_database(
-            rq_record,
-            epoch_sync=rq_epoch_sync,
-        )
         rq_record["database_datum_sync"] = (
             None if rq_datum_sync is None else asdict(rq_datum_sync)
-        )
-
-        rq_constituent_sync = _sync_record_constituents_to_database(
-            rq_record,
-            epoch_sync=rq_epoch_sync,
         )
         rq_record["database_constituent_sync"] = (
             None if rq_constituent_sync is None else asdict(rq_constituent_sync)
@@ -4259,6 +4830,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run datums/predictions diagnostics for one, multiple, or all stations.")
     parser.add_argument("--station-id", default=DEFAULT_STATION_ID, help="Station id, comma-separated ids, or 'all'.")
     args = parser.parse_args()
+
+    _validate_database_write_policy_or_die()
 
     station_ids = _resolve_station_ids(args.station_id)
     log(f"Requested datums_predictions run for {len(station_ids)} station(s): {', '.join(station_ids)}")
