@@ -134,6 +134,17 @@ class DatabasePolicy:
     fd_record_quality_short_name: str = "fd"
     rq_record_quality_short_name: str = "rq"
 
+    # Automatic cleanup for stale rolling RECENT_* epochs on the same current
+    # time_series/input_basis target.
+    #
+    # This removes old RECENT_* epochs that are no longer selected by the current
+    # run for the same time_series_id + input_basis_id, along with their datum,
+    # constituent, tide_prediction, and high_low_prediction child rows. Stable
+    # named epochs such as NTDE_* and IPCC-* are intentionally not deleted.
+    auto_cleanup_stale_recent_epochs: bool = False
+    write_stale_recent_epoch_cleanup: bool = False
+    log_stale_recent_epoch_cleanup_plan: bool = True
+
     # Automatic cleanup for superseded best_available prediction rows.
     #
     # This uses public.date_range_by_time_series_quality as the authoritative
@@ -258,8 +269,11 @@ DATABASE_POLICY = DatabasePolicy(
     write_constituents=False,
     write_tide_predictions=False,
     write_high_low_predictions=False,
+    auto_cleanup_stale_recent_epochs=False,
+    write_stale_recent_epoch_cleanup=False,
     auto_cleanup_superseded_best_available_predictions=False,
     write_prediction_auto_cleanup=False,
+    write_prediction_cutover_cleanup=False,
     reconciliation_mode="warn",
 )
 

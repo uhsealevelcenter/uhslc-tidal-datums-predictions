@@ -198,6 +198,31 @@ class PredictionDbWindow:
 
 
 @dataclass(frozen=True)
+class StaleRecentEpochCleanupResult:
+    """Cleanup manifest for stale rolling RECENT_* epochs.
+
+    Cleanup is scoped to one processed DB target: time_series_id + input_basis_id.
+    It deletes only RECENT_* epochs that are no longer selected by the current
+    run, plus their child datum/constituent/prediction rows.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    current_epoch_names: list[str]
+    stale_epochs: list[dict[str, Any]]
+    datum_rows_deleted: int
+    constituent_rows_deleted: int
+    tide_prediction_rows_deleted: int
+    high_low_prediction_rows_deleted: int
+    epoch_rows_deleted: int
+    write_cleanup: bool
+
+
+@dataclass(frozen=True)
 class PredictionAutoCleanupResult:
     """Cleanup manifest for superseded best_available prediction rows.
 
@@ -405,19 +430,24 @@ def _validate_database_write_policy_or_die() -> None:
             f"Current values: {core_write_flags}."
         )
 
-    prediction_write_flags = {
+    dependent_write_flags = {
         "write_tide_predictions": bool(DATABASE_POLICY.write_tide_predictions),
         "write_high_low_predictions": bool(DATABASE_POLICY.write_high_low_predictions),
         "write_prediction_auto_cleanup": bool(DATABASE_POLICY.write_prediction_auto_cleanup),
         "write_prediction_cutover_cleanup": bool(DATABASE_POLICY.write_prediction_cutover_cleanup),
+        "write_stale_recent_epoch_cleanup": bool(
+            DATABASE_POLICY.write_stale_recent_epoch_cleanup
+        ),
     }
 
-    if any(prediction_write_flags.values()) and not all(core_write_flags.values()):
+    if any(dependent_write_flags.values()) and not all(core_write_flags.values()):
         raise RuntimeError(
-            "Invalid DATABASE_POLICY prediction write combination. Prediction "
-            "writes/cleanups require atomic core writes first, so write_epochs, "
-            "write_datums, and write_constituents must all be True. "
-            f"Core values: {core_write_flags}; prediction values: {prediction_write_flags}."
+            "Invalid DATABASE_POLICY dependent write combination. Prediction "
+            "writes/cleanups and stale RECENT epoch cleanup require atomic core "
+            "writes first, so write_epochs, write_datums, and "
+            "write_constituents must all be True. "
+            f"Core values: {core_write_flags}; dependent values: "
+            f"{dependent_write_flags}."
         )
 
 
@@ -2323,6 +2353,281 @@ def _sync_record_core_tables_to_database(
 
     finally:
         conn.close()
+
+
+def _current_record_epoch_names(record: dict[str, Any]) -> list[str]:
+    """Return selected epoch names for one processed record."""
+
+    return sorted(
+        str(epoch_summary["epoch"]["name"])
+        for epoch_summary in record.get("epochs", [])
+    )
+
+
+def _query_stale_recent_epochs_for_cleanup(
+    conn,
+    *,
+    epoch_sync: EpochSyncResult,
+    current_epoch_names: list[str],
+) -> list[dict[str, Any]]:
+    """Find stale RECENT_* epochs for one time_series/input_basis target."""
+
+    rows = _fetchall_dicts(
+        conn,
+        """
+        SELECT
+            e.id AS epoch_id,
+            e.name AS epoch_name,
+            e."primary" AS primary,
+            e.is_prediction_basis AS is_prediction_basis,
+            COALESCE(d.datum_rows, 0) AS datum_rows,
+            COALESCE(c.constituent_rows, 0) AS constituent_rows,
+            COALESCE(tp.tide_prediction_rows, 0) AS tide_prediction_rows,
+            COALESCE(hlp.high_low_prediction_rows, 0) AS high_low_prediction_rows
+        FROM public.epoch e
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS datum_rows
+            FROM public.datum d
+            WHERE d.epoch_id = e.id
+        ) d ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS constituent_rows
+            FROM public.constituent c
+            WHERE c.epoch_id = e.id
+        ) c ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS tide_prediction_rows
+            FROM public.tide_prediction tp
+            WHERE tp.epoch_id = e.id
+        ) tp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS high_low_prediction_rows
+            FROM public.high_low_prediction hlp
+            WHERE hlp.epoch_id = e.id
+        ) hlp ON TRUE
+        WHERE e.time_series_id = %s
+          AND e.input_basis_id = %s
+          AND COALESCE(e."source", '') != 'legacy'
+          AND LEFT(e.name, 7) = 'RECENT_'
+          AND NOT (e.name = ANY(%s::text[]))
+        ORDER BY e.id
+        """,
+        (
+            int(epoch_sync.time_series_id),
+            int(epoch_sync.input_basis_id),
+            list(current_epoch_names),
+        ),
+    )
+
+    stale_epochs: list[dict[str, Any]] = []
+    for row in rows:
+        stale_epochs.append(
+            {
+                "epoch_id": int(row["epoch_id"]),
+                "epoch_name": str(row["epoch_name"]),
+                "primary": bool(row["primary"]),
+                "is_prediction_basis": bool(row["is_prediction_basis"]),
+                "datum_rows": int(row["datum_rows"]),
+                "constituent_rows": int(row["constituent_rows"]),
+                "tide_prediction_rows": int(row["tide_prediction_rows"]),
+                "high_low_prediction_rows": int(row["high_low_prediction_rows"]),
+            }
+        )
+
+    return stale_epochs
+
+
+def _delete_stale_recent_epochs(
+    conn,
+    *,
+    epoch_sync: EpochSyncResult,
+    stale_epoch_ids: list[int],
+) -> dict[str, int]:
+    """Delete stale RECENT_* epochs and all child rows."""
+
+    if not stale_epoch_ids:
+        return {
+            "high_low_prediction_rows_deleted": 0,
+            "tide_prediction_rows_deleted": 0,
+            "constituent_rows_deleted": 0,
+            "datum_rows_deleted": 0,
+            "epoch_rows_deleted": 0,
+        }
+
+    deleted = {
+        "high_low_prediction_rows_deleted": 0,
+        "tide_prediction_rows_deleted": 0,
+        "constituent_rows_deleted": 0,
+        "datum_rows_deleted": 0,
+        "epoch_rows_deleted": 0,
+    }
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM public.high_low_prediction
+            WHERE epoch_id = ANY(%s::bigint[])
+            """,
+            (stale_epoch_ids,),
+        )
+        deleted["high_low_prediction_rows_deleted"] = int(cur.rowcount)
+
+        cur.execute(
+            """
+            DELETE FROM public.tide_prediction
+            WHERE epoch_id = ANY(%s::bigint[])
+            """,
+            (stale_epoch_ids,),
+        )
+        deleted["tide_prediction_rows_deleted"] = int(cur.rowcount)
+
+        cur.execute(
+            """
+            DELETE FROM public.constituent
+            WHERE epoch_id = ANY(%s::bigint[])
+            """,
+            (stale_epoch_ids,),
+        )
+        deleted["constituent_rows_deleted"] = int(cur.rowcount)
+
+        cur.execute(
+            """
+            DELETE FROM public.datum
+            WHERE epoch_id = ANY(%s::bigint[])
+            """,
+            (stale_epoch_ids,),
+        )
+        deleted["datum_rows_deleted"] = int(cur.rowcount)
+
+        cur.execute(
+            """
+            DELETE FROM public.epoch
+            WHERE id = ANY(%s::bigint[])
+              AND time_series_id = %s
+              AND input_basis_id = %s
+              AND COALESCE("source", '') != 'legacy'
+              AND LEFT(name, 7) = 'RECENT_'
+            """,
+            (
+                stale_epoch_ids,
+                int(epoch_sync.time_series_id),
+                int(epoch_sync.input_basis_id),
+            ),
+        )
+        deleted["epoch_rows_deleted"] = int(cur.rowcount)
+
+    return deleted
+
+
+def _run_stale_recent_epoch_cleanup(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+) -> StaleRecentEpochCleanupResult | None:
+    """Remove old rolling RECENT_* epochs for one processed DB target."""
+
+    if (
+        not DATABASE_POLICY.auto_cleanup_stale_recent_epochs
+        and not DATABASE_POLICY.write_stale_recent_epoch_cleanup
+    ):
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: stale RECENT epoch cleanup skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        log(
+            f"{record['record_id']}: stale RECENT epoch cleanup skipped | "
+            "no epoch IDs available"
+        )
+        return None
+
+    current_epoch_names = _current_record_epoch_names(record)
+
+    with _tsdb_connection() as (conn, _ts_processor):
+        stale_epochs = _query_stale_recent_epochs_for_cleanup(
+            conn,
+            epoch_sync=epoch_sync,
+            current_epoch_names=current_epoch_names,
+        )
+
+        if DATABASE_POLICY.log_stale_recent_epoch_cleanup_plan:
+            log(
+                f"{record['record_id']}: stale RECENT epoch cleanup plan | "
+                f"time_series_id={epoch_sync.time_series_id} | "
+                f"id_from_source={epoch_sync.id_from_source} | "
+                f"input_basis={epoch_sync.input_basis_code} | "
+                f"stale_epochs={len(stale_epochs)} | "
+                f"write_cleanup={DATABASE_POLICY.write_stale_recent_epoch_cleanup}"
+            )
+
+            for stale_epoch in stale_epochs:
+                log(
+                    f"{record['record_id']}: "
+                    f"{'DELETE' if DATABASE_POLICY.write_stale_recent_epoch_cleanup else 'WOULD DELETE'} "
+                    "stale RECENT epoch | "
+                    f"epoch_id={stale_epoch['epoch_id']} | "
+                    f"name={stale_epoch['epoch_name']} | "
+                    f"datums={stale_epoch['datum_rows']} | "
+                    f"constituents={stale_epoch['constituent_rows']} | "
+                    f"tide_predictions={stale_epoch['tide_prediction_rows']} | "
+                    f"high_low_predictions={stale_epoch['high_low_prediction_rows']}"
+                )
+
+        deleted = {
+            "high_low_prediction_rows_deleted": 0,
+            "tide_prediction_rows_deleted": 0,
+            "constituent_rows_deleted": 0,
+            "datum_rows_deleted": 0,
+            "epoch_rows_deleted": 0,
+        }
+
+        if DATABASE_POLICY.write_stale_recent_epoch_cleanup and stale_epochs:
+            try:
+                deleted = _delete_stale_recent_epochs(
+                    conn,
+                    epoch_sync=epoch_sync,
+                    stale_epoch_ids=[
+                        int(stale_epoch["epoch_id"])
+                        for stale_epoch in stale_epochs
+                    ],
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+            log(
+                f"{record['record_id']}: stale RECENT epoch cleanup complete | "
+                f"epochs_deleted={deleted['epoch_rows_deleted']} | "
+                f"datums_deleted={deleted['datum_rows_deleted']} | "
+                f"constituents_deleted={deleted['constituent_rows_deleted']} | "
+                f"tide_predictions_deleted={deleted['tide_prediction_rows_deleted']} | "
+                f"high_low_predictions_deleted={deleted['high_low_prediction_rows_deleted']}"
+            )
+
+        return StaleRecentEpochCleanupResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            current_epoch_names=current_epoch_names,
+            stale_epochs=stale_epochs,
+            datum_rows_deleted=int(deleted["datum_rows_deleted"]),
+            constituent_rows_deleted=int(deleted["constituent_rows_deleted"]),
+            tide_prediction_rows_deleted=int(deleted["tide_prediction_rows_deleted"]),
+            high_low_prediction_rows_deleted=int(
+                deleted["high_low_prediction_rows_deleted"]
+            ),
+            epoch_rows_deleted=int(deleted["epoch_rows_deleted"]),
+            write_cleanup=bool(DATABASE_POLICY.write_stale_recent_epoch_cleanup),
+        )
 
 
 def _database_prediction_value_from_mm(value_mm: Any) -> float:
@@ -4437,6 +4742,16 @@ def _run_station(station_id: str) -> None:
             None if fd_constituent_sync is None else asdict(fd_constituent_sync)
         )
 
+        fd_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+        )
+        fd_record["database_stale_recent_epoch_cleanup"] = (
+            None
+            if fd_stale_recent_cleanup is None
+            else asdict(fd_stale_recent_cleanup)
+        )
+
         fd_prediction_window = _resolve_record_prediction_db_window(
             record=fd_record,
             epoch_sync=fd_epoch_sync,
@@ -4528,6 +4843,16 @@ def _run_station(station_id: str) -> None:
         )
         rq_record["database_constituent_sync"] = (
             None if rq_constituent_sync is None else asdict(rq_constituent_sync)
+        )
+
+        rq_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+        )
+        rq_record["database_stale_recent_epoch_cleanup"] = (
+            None
+            if rq_stale_recent_cleanup is None
+            else asdict(rq_stale_recent_cleanup)
         )
 
         rq_prediction_window = _resolve_record_prediction_db_window(
