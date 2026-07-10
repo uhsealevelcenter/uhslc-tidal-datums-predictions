@@ -28,7 +28,12 @@ warnings.filterwarnings(
 )
 from utide import solve, reconstruct
 
-from tidal_config import EPOCH_POLICY, PREDICTION_POLICY, PredictionPolicy, minute_prediction_window
+from tidal_config import (
+    EPOCH_POLICY,
+    PREDICTION_POLICY,
+    PredictionPolicy,
+    minute_prediction_window,
+)
 
 MISSING_VALUE = -32767
 ERDDAP_BASE = 'https://uhslc.soest.hawaii.edu/erddap/tabledap'
@@ -80,6 +85,7 @@ class HarmonicResult:
     slope_mm_per_day: float
     coef: object | None = None
 
+
 @dataclass
 class DatumResult:
     tide_type: str
@@ -95,7 +101,10 @@ class DatumResult:
     DHQ: float
     DLQ: float
     HAT: float
+    HAT_time: pd.Timestamp | None
     LAT: float
+    LAT_time: pd.Timestamp | None
+    STND: float
     p90_low: float
     p95_low: float
     p99_low: float
@@ -814,7 +823,41 @@ def compute_tide_type(df_epoch: pd.DataFrame) -> str:
     return _classify_tide_type(t, y, highs, lows)
 
 
-def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None = None) -> DatumResult:
+def _prediction_extrema(
+    prediction_df: pd.DataFrame,
+    *,
+    value_column: str = 'prediction_mm',
+) -> tuple[float, pd.Timestamp, float, pd.Timestamp]:
+    """Return max/min prediction values and their timestamps."""
+    if value_column not in prediction_df.columns:
+        raise ValueError(f"prediction_df must include a {value_column!r} column.")
+    if 'time' not in prediction_df.columns:
+        raise ValueError("prediction_df must include a 'time' column.")
+
+    pred_df = prediction_df[['time', value_column]].copy()
+    pred_df[value_column] = pd.to_numeric(pred_df[value_column], errors='coerce')
+    pred_df['time'] = pd.to_datetime(pred_df['time'])
+    pred_df = pred_df.dropna(subset=['time', value_column])
+
+    if pred_df.empty:
+        raise ValueError('prediction_df must contain at least one finite predicted value.')
+
+    hat_idx = pred_df[value_column].idxmax()
+    lat_idx = pred_df[value_column].idxmin()
+
+    return (
+        float(pred_df.loc[hat_idx, value_column]),
+        pd.Timestamp(pred_df.loc[hat_idx, 'time']),
+        float(pred_df.loc[lat_idx, value_column]),
+        pd.Timestamp(pred_df.loc[lat_idx, 'time']),
+    )
+
+
+def compute_datums(
+    df_epoch: pd.DataFrame,
+    epoch_prediction: pd.DataFrame | None = None,
+    hat_lat_prediction: pd.DataFrame | None = None,
+) -> DatumResult:
     df_epoch = clean_hourly_dataframe(df_epoch)
     df_epoch = df_epoch.dropna(subset=['sea_level'])
     if len(df_epoch) < 24:
@@ -841,18 +884,23 @@ def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None
     MN = float(MHW - MLW)
     DHQ = float(MHHW - MHW)
     DLQ = float(MLW - MLLW)
-    pred_y = y
-    if epoch_prediction is not None:
-        pred_df = epoch_prediction.copy()
-        if 'prediction_mm' not in pred_df.columns:
-            raise ValueError("epoch_prediction must include a 'prediction_mm' column.")
-        pred_y = pd.to_numeric(pred_df['prediction_mm'], errors='coerce').to_numpy(dtype=float)
-        pred_y = pred_y[np.isfinite(pred_y)]
-        if len(pred_y) == 0:
-            raise ValueError('epoch_prediction must contain at least one finite predicted value.')
 
-    HAT = float(np.nanmax(pred_y))
-    LAT = float(np.nanmin(pred_y))
+    if hat_lat_prediction is not None:
+        # NOAA CO-OPS HAT/LAT definitions use a 40-year astronomical prediction
+        # window, not the observation epoch window. The caller should pass a
+        # prediction generated over HAT_LAT_PREDICTION_START/END.
+        HAT, HAT_time, LAT, LAT_time = _prediction_extrema(hat_lat_prediction)
+    elif epoch_prediction is not None:
+        # Backward-compatible fallback for older callers/tests. The production
+        # datums_predictions pipeline passes hat_lat_prediction explicitly.
+        HAT, HAT_time, LAT, LAT_time = _prediction_extrema(epoch_prediction)
+    else:
+        obs_pred = pd.DataFrame({'time': t, 'prediction_mm': y})
+        HAT, HAT_time, LAT, LAT_time = _prediction_extrema(obs_pred)
+
+    # Values are stored relative to station datum/station zero; station datum
+    # relative to itself is therefore zero.
+    STND = 0.0
 
     p90_low = float(np.nanpercentile(y, 10))
     p95_low = float(np.nanpercentile(y, 5))
@@ -861,7 +909,7 @@ def compute_datums(df_epoch: pd.DataFrame, epoch_prediction: pd.DataFrame | None
     p95_high = float(np.nanpercentile(y, 95))
     p99_high = float(np.nanpercentile(y, 99))
 
-    return DatumResult(tide_type=tide_type, MHHW=MHHW, MHW=MHW, DTL=DTL, MTL=MTL, MSL=MSL, MLW=MLW, MLLW=MLLW, GT=GT, MN=MN, DHQ=DHQ, DLQ=DLQ, HAT=HAT, LAT=LAT, p90_low=p90_low, p95_low=p95_low, p99_low=p99_low, p90_high=p90_high, p95_high=p95_high, p99_high=p99_high)
+    return DatumResult(tide_type=tide_type, MHHW=MHHW, MHW=MHW, DTL=DTL, MTL=MTL, MSL=MSL, MLW=MLW, MLLW=MLLW, GT=GT, MN=MN, DHQ=DHQ, DLQ=DLQ, HAT=HAT, HAT_time=HAT_time, LAT=LAT, LAT_time=LAT_time, STND=STND, p90_low=p90_low, p95_low=p95_low, p99_low=p99_low, p90_high=p90_high, p95_high=p95_high, p99_high=p99_high)
 
 
 def prepare_harmonic_fit_dataframe(df_epoch: pd.DataFrame) -> pd.DataFrame:
@@ -1171,6 +1219,46 @@ def _attach_skill(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
+DATUM_RESULT_TIME_FIELDS = {'HAT_time', 'LAT_time'}
+
+
+def _datum_time_to_datetime64(value) -> np.datetime64:
+    if value is None:
+        return np.datetime64('NaT', 'ns')
+
+    try:
+        if pd.isna(value):
+            return np.datetime64('NaT', 'ns')
+    except (TypeError, ValueError):
+        pass
+
+    return np.datetime64(pd.Timestamp(value).to_datetime64(), 'ns')
+
+
+def _attach_datum_result_variables(
+    ds: xr.Dataset,
+    epochs: List[Epoch],
+    datum_by_epoch: Dict[str, DatumResult],
+) -> xr.Dataset:
+    for field in DatumResult.__dataclass_fields__.keys():
+        if field == 'tide_type':
+            ds[field] = xr.DataArray(
+                np.array([datum_by_epoch[e.name].tide_type for e in epochs], dtype=object),
+                dims=['epoch'],
+            )
+        elif field in DATUM_RESULT_TIME_FIELDS:
+            vals = [
+                _datum_time_to_datetime64(getattr(datum_by_epoch[e.name], field))
+                for e in epochs
+            ]
+            ds[field] = xr.DataArray(np.array(vals, dtype='datetime64[ns]'), dims=['epoch'])
+        else:
+            vals = [round(getattr(datum_by_epoch[e.name], field)) for e in epochs]
+            ds[field] = xr.DataArray(np.array(vals, dtype=np.int32), dims=['epoch'])
+
+    return ds
+
+
 def build_datums_only_dataset(station_id: str, station_name: str, station_kind: str, epochs: List[Epoch], datum_by_epoch: Dict[str, DatumResult], switch_levels: SwitchLevel | None = None) -> xr.Dataset:
     ds = xr.Dataset(coords={'epoch': [e.name for e in epochs]})
     ds.attrs['station_id'] = station_id
@@ -1181,12 +1269,7 @@ def build_datums_only_dataset(station_id: str, station_name: str, station_kind: 
     ds.attrs['units'] = 'mm integer'
     ds.attrs['content'] = 'datums_only'
 
-    for field in DatumResult.__dataclass_fields__.keys():
-        if field == 'tide_type':
-            ds[field] = xr.DataArray(np.array([datum_by_epoch[e.name].tide_type for e in epochs], dtype=object), dims=['epoch'])
-        else:
-            vals = [round(getattr(datum_by_epoch[e.name], field)) for e in epochs]
-            ds[field] = xr.DataArray(np.array(vals, dtype=np.int32), dims=['epoch'])
+    ds = _attach_datum_result_variables(ds, epochs, datum_by_epoch)
 
     ds['epoch_start'] = xr.DataArray(np.array([np.datetime64(e.start, 'ns') for e in epochs]), dims=['epoch'])
     ds['epoch_end'] = xr.DataArray(np.array([np.datetime64(e.end, 'ns') for e in epochs]), dims=['epoch'])
@@ -1230,12 +1313,8 @@ def build_netcdf_dataset(
     ds.attrs['time_zone'] = 'GMT'
     ds.attrs['units'] = 'mm integer'
 
-    for field in DatumResult.__dataclass_fields__.keys():
-        if field == 'tide_type':
-            ds[field] = xr.DataArray(np.array([datum_by_epoch[e.name].tide_type for e in epochs], dtype=object), dims=['epoch'])
-        else:
-            vals = [round(getattr(datum_by_epoch[e.name], field)) for e in epochs]
-            ds[field] = xr.DataArray(np.array(vals, dtype=np.int32), dims=['epoch'])
+    ds = _attach_datum_result_variables(ds, epochs, datum_by_epoch)
+
     ds['epoch_start'] = xr.DataArray(np.array([np.datetime64(e.start, 'ns') for e in epochs]), dims=['epoch'])
     ds['epoch_end'] = xr.DataArray(np.array([np.datetime64(e.end, 'ns') for e in epochs]), dims=['epoch'])
     ds['epoch_completion_fraction'] = xr.DataArray(np.array([e.completion_fraction for e in epochs], dtype=float), dims=['epoch'])

@@ -22,7 +22,11 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tidal_config import DATABASE_POLICY
+from tidal_config import (
+    DATABASE_POLICY,
+    HAT_LAT_PREDICTION_END,
+    HAT_LAT_PREDICTION_START,
+)
 
 from core import (
     build_prediction_save_plan,
@@ -1258,6 +1262,7 @@ DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME = {
     "mn": "mn",
     "msl": "msl",
     "mtl": "mtl",
+    "stnd": "stnd",
 }
 
 DATUM_TIME_KEY_TO_DEFINITION_SHORT_NAME = {
@@ -2046,7 +2051,9 @@ def _validate_core_table_write_counts(
             f"{len(constituent_df)} row(s)."
         )
 
-    required_datum_short_names = set(DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME.values())
+    required_datum_short_names = set(
+        DATUM_VALUE_KEY_TO_DEFINITION_SHORT_NAME.values()
+    ) | set(DATUM_TIME_KEY_TO_DEFINITION_SHORT_NAME.values())
 
     planned_datum_short_names_by_epoch = (
         datum_df.groupby("epoch_name")["definition_short_name"]
@@ -4121,6 +4128,8 @@ def _run_record(
                 "fit_end": str(fit_end),
                 "fit_observation_rows": int(len(fit_observed)),
                 "latitude": float(latitude),
+                "hat_lat_prediction_start": str(HAT_LAT_PREDICTION_START),
+                "hat_lat_prediction_end": str(HAT_LAT_PREDICTION_END),
             },
         )
         harmonics_summary = strip_harmonic_result(fitted_harmonics)
@@ -4129,7 +4138,17 @@ def _run_record(
 
         harmonics = load_harmonic_result(harmonic_artifacts[ep.name]["pickle"])
         epoch_hourly_pred = predict_from_harmonics(harmonics, ep.start, ep.end, freq="1h")
-        datum = compute_datums(sub, epoch_prediction=epoch_hourly_pred)
+        hat_lat_pred = predict_from_harmonics(
+            harmonics,
+            HAT_LAT_PREDICTION_START,
+            HAT_LAT_PREDICTION_END,
+            freq="1h",
+        )
+        datum = compute_datums(
+            sub,
+            epoch_prediction=epoch_hourly_pred,
+            hat_lat_prediction=hat_lat_pred,
+        )
 
         datum_by_epoch[ep.name] = datum
         harmonics_by_epoch[ep.name] = harmonics_summary
@@ -4220,7 +4239,7 @@ def _run_record(
 
         epoch_summary_by_name[ep.name] = epoch_summary
         epoch_summaries.append(epoch_summary)
-        del harmonics, sub, fit_observed, epoch_hourly_pred, minute_highlow
+        del harmonics, sub, fit_observed, epoch_hourly_pred, hat_lat_pred, minute_highlow
         gc.collect()
 
     prediction_items = saved_prediction_epoch_items(epochs, prediction_plan)

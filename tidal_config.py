@@ -244,6 +244,13 @@ PREDICTION_POLICY = PredictionPolicy(
     save_predictions_for_all_epochs=False,
 )
 
+# NOAA CO-OPS defines HAT/LAT as the highest/lowest predicted astronomical tide
+# over a 40-year period, updated every 20 years. The current published period is
+# 2000-2040. Keep this configurable so the next official window can be changed
+# without touching the processing code.
+HAT_LAT_PREDICTION_START = pd.Timestamp("2000-01-01 00:00:00")
+HAT_LAT_PREDICTION_END = pd.Timestamp("2040-12-31 23:00:00")
+
 # Define what datasets to write to the database.
 DATABASE_POLICY = DatabasePolicy(
     write_epochs=False,
