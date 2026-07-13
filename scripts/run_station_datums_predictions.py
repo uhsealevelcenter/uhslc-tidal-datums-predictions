@@ -4728,28 +4728,49 @@ def _run_station(station_id: str) -> None:
 
     try:
         fd_record = _run_record(station_id, "FD", output_root)
+
+    except ErddapNoRowsError as exc:
+        if (
+            DATABASE_POLICY.require_fd_record
+            or DATABASE_POLICY.reconciliation_mode == "strict"
+        ):
+            raise
+
+        log(
+            f"Station {station_id}: FD/best_available record skipped in warn mode | "
+            f"no hourly FD/best-available rows available from ERDDAP: {exc}"
+        )
+
+        summary["skipped_records"].append(
+            {
+                "record_id": station_id,
+                "station_kind": "FD",
+                "reason": (
+                    "No hourly fast-delivery/best-available source rows were "
+                    "available from ERDDAP."
+                ),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
+
+    else:
         fd_epoch_sync, fd_datum_sync, fd_constituent_sync = (
             _sync_record_core_tables_to_database(
                 fd_record,
                 last_update=run_last_update,
             )
         )
-        fd_record["database_sync"] = None if fd_epoch_sync is None else asdict(fd_epoch_sync)
+        fd_record["database_sync"] = (
+            None if fd_epoch_sync is None else asdict(fd_epoch_sync)
+        )
         fd_record["database_datum_sync"] = (
             None if fd_datum_sync is None else asdict(fd_datum_sync)
         )
         fd_record["database_constituent_sync"] = (
-            None if fd_constituent_sync is None else asdict(fd_constituent_sync)
-        )
-
-        fd_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
-            fd_record,
-            epoch_sync=fd_epoch_sync,
-        )
-        fd_record["database_stale_recent_epoch_cleanup"] = (
             None
-            if fd_stale_recent_cleanup is None
-            else asdict(fd_stale_recent_cleanup)
+            if fd_constituent_sync is None
+            else asdict(fd_constituent_sync)
         )
 
         fd_prediction_window = _resolve_record_prediction_db_window(
@@ -4763,16 +4784,32 @@ def _run_station(station_id: str) -> None:
             prediction_window=fd_prediction_window,
         )
         fd_record["database_tide_prediction_sync"] = (
-            None if fd_tide_prediction_sync is None else asdict(fd_tide_prediction_sync)
+            None
+            if fd_tide_prediction_sync is None
+            else asdict(fd_tide_prediction_sync)
         )
 
-        fd_high_low_prediction_sync = _sync_record_high_low_predictions_to_database(
-            fd_record,
-            epoch_sync=fd_epoch_sync,
-            prediction_window=fd_prediction_window,
+        fd_high_low_prediction_sync = (
+            _sync_record_high_low_predictions_to_database(
+                fd_record,
+                epoch_sync=fd_epoch_sync,
+                prediction_window=fd_prediction_window,
+            )
         )
         fd_record["database_high_low_prediction_sync"] = (
-            None if fd_high_low_prediction_sync is None else asdict(fd_high_low_prediction_sync)
+            None
+            if fd_high_low_prediction_sync is None
+            else asdict(fd_high_low_prediction_sync)
+        )
+
+        fd_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
+            fd_record,
+            epoch_sync=fd_epoch_sync,
+        )
+        fd_record["database_stale_recent_epoch_cleanup"] = (
+            None
+            if fd_stale_recent_cleanup is None
+            else asdict(fd_stale_recent_cleanup)
         )
 
         fd_record.pop("_hourly_prediction_frames", None)
@@ -4780,25 +4817,6 @@ def _run_station(station_id: str) -> None:
 
         summary["records"].append(fd_record)
         processed_any_record = True
-
-    except Exception as exc:
-        if DATABASE_POLICY.require_fd_record or DATABASE_POLICY.reconciliation_mode == "strict":
-            raise
-
-        log(
-            f"Station {station_id}: FD/best_available record skipped in warn mode | "
-            f"{type(exc).__name__}: {exc}"
-        )
-
-        summary["skipped_records"].append(
-            {
-                "record_id": station_id,
-                "station_kind": "FD",
-                "reason": "FD/best_available record unavailable or not writable in warn mode.",
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-        )
 
     for version in rq_versions_for_run:
         rq_record_id = f"{station_id}{str(version).lower()}"
@@ -4845,16 +4863,6 @@ def _run_station(station_id: str) -> None:
             None if rq_constituent_sync is None else asdict(rq_constituent_sync)
         )
 
-        rq_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
-            rq_record,
-            epoch_sync=rq_epoch_sync,
-        )
-        rq_record["database_stale_recent_epoch_cleanup"] = (
-            None
-            if rq_stale_recent_cleanup is None
-            else asdict(rq_stale_recent_cleanup)
-        )
-
         rq_prediction_window = _resolve_record_prediction_db_window(
             record=rq_record,
             epoch_sync=rq_epoch_sync,
@@ -4876,6 +4884,16 @@ def _run_station(station_id: str) -> None:
         )
         rq_record["database_high_low_prediction_sync"] = (
             None if rq_high_low_prediction_sync is None else asdict(rq_high_low_prediction_sync)
+        )
+
+        rq_stale_recent_cleanup = _run_stale_recent_epoch_cleanup(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+        )
+        rq_record["database_stale_recent_epoch_cleanup"] = (
+            None
+            if rq_stale_recent_cleanup is None
+            else asdict(rq_stale_recent_cleanup)
         )
 
         rq_record.pop("_hourly_prediction_frames", None)
