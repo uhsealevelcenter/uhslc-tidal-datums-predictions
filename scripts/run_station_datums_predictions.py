@@ -5,6 +5,7 @@ import json
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from io import StringIO
 from functools import lru_cache
 from pathlib import Path
 import sys
@@ -26,6 +27,12 @@ from tidal_config import (
     DATABASE_POLICY,
     HAT_LAT_PREDICTION_END,
     HAT_LAT_PREDICTION_START,
+)
+
+from hf_tide_predictions import (
+    hf_prediction_row_count,
+    iter_hf_prediction_chunks,
+    minute_resolution_timedelta,
 )
 
 from core import (
@@ -158,6 +165,30 @@ class TidePredictionSyncResult:
 
 
 @dataclass(frozen=True)
+class HfTidePredictionSyncResult:
+    """Database write manifest produced by HF tide prediction sync.
+
+    HF prediction sync consumes the same saved hourly prediction products and
+    EpochSyncResult used by regular tide-prediction synchronization.
+    """
+
+    record_id: str
+    station_kind: str
+    time_series_id: int
+    id_from_source: str
+    input_basis_code: str
+    input_basis_id: int
+    resolution_id: int | None
+    temporal_resolution_code: str | None
+    rows_planned: int
+    rows_deleted: int
+    rows_written: int
+    rows_skipped: int
+    write_hf_tide_predictions: bool
+    notes: list[str]
+
+
+@dataclass(frozen=True)
 class HighLowPredictionSyncResult:
     """Database write manifest produced by minute high/low prediction sync.
 
@@ -177,6 +208,29 @@ class HighLowPredictionSyncResult:
     rows_skipped: int
     write_high_low_predictions: bool
     notes: list[str]
+
+
+@dataclass(frozen=True)
+class HfResolutionTarget:
+    resolution_id: int
+    temporal_resolution_code: str
+    latest_time: pd.Timestamp
+
+
+@dataclass(frozen=True)
+class HfTidePredictionPlan:
+    epoch_name: str
+    epoch_id: int
+    time_series_id: int
+    resolution_id: int | None
+    temporal_resolution_code: str | None
+    interval: pd.Timedelta | None
+    delete_start: pd.Timestamp
+    delete_end: pd.Timestamp
+    insert_start: pd.Timestamp | None
+    insert_end: pd.Timestamp | None
+    rows_planned: int
+    hourly_frame: pd.DataFrame
 
 
 @dataclass(frozen=True)
@@ -217,6 +271,7 @@ class StaleRecentEpochCleanupResult:
     datum_rows_deleted: int
     constituent_rows_deleted: int
     tide_prediction_rows_deleted: int
+    hf_tide_prediction_rows_deleted: int
     high_low_prediction_rows_deleted: int
     epoch_rows_deleted: int
     write_cleanup: bool
@@ -238,6 +293,7 @@ class PredictionAutoCleanupResult:
     temporal_resolution_code: str
     actions: list[dict[str, Any]]
     tide_prediction_rows_deleted: int
+    hf_tide_prediction_rows_deleted: int
     high_low_prediction_rows_deleted: int
     write_cleanup: bool
     notes: list[str]
@@ -432,6 +488,7 @@ def _validate_database_write_policy_or_die() -> None:
 
     dependent_write_flags = {
         "write_tide_predictions": bool(DATABASE_POLICY.write_tide_predictions),
+        "write_hf_tide_predictions": bool(DATABASE_POLICY.write_hf_tide_predictions),
         "write_high_low_predictions": bool(DATABASE_POLICY.write_high_low_predictions),
         "write_prediction_auto_cleanup": bool(DATABASE_POLICY.write_prediction_auto_cleanup),
         "write_prediction_cutover_cleanup": bool(DATABASE_POLICY.write_prediction_cutover_cleanup),
@@ -448,6 +505,17 @@ def _validate_database_write_policy_or_die() -> None:
             "write_constituents must all be True. "
             f"Core values: {core_write_flags}; dependent values: "
             f"{dependent_write_flags}."
+        )
+
+    if (
+        DATABASE_POLICY.write_hf_tide_predictions
+        and not DATABASE_POLICY.write_tide_predictions
+    ):
+        raise RuntimeError(
+            "Invalid DATABASE_POLICY prediction write combination. "
+            "write_hf_tide_predictions=True requires "
+            "write_tide_predictions=True so the derived HF product cannot be "
+            "committed without its authoritative hourly source product."
         )
 
 
@@ -2383,6 +2451,7 @@ def _query_stale_recent_epochs_for_cleanup(
             COALESCE(d.datum_rows, 0) AS datum_rows,
             COALESCE(c.constituent_rows, 0) AS constituent_rows,
             COALESCE(tp.tide_prediction_rows, 0) AS tide_prediction_rows,
+            COALESCE(hftp.hf_tide_prediction_rows, 0) AS hf_tide_prediction_rows,
             COALESCE(hlp.high_low_prediction_rows, 0) AS high_low_prediction_rows
         FROM public.epoch e
         LEFT JOIN LATERAL (
@@ -2400,6 +2469,11 @@ def _query_stale_recent_epochs_for_cleanup(
             FROM public.tide_prediction tp
             WHERE tp.epoch_id = e.id
         ) tp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS hf_tide_prediction_rows
+            FROM public.hf_tide_prediction hftp
+            WHERE hftp.epoch_id = e.id
+        ) hftp ON TRUE
         LEFT JOIN LATERAL (
             SELECT COUNT(*) AS high_low_prediction_rows
             FROM public.high_low_prediction hlp
@@ -2430,6 +2504,7 @@ def _query_stale_recent_epochs_for_cleanup(
                 "datum_rows": int(row["datum_rows"]),
                 "constituent_rows": int(row["constituent_rows"]),
                 "tide_prediction_rows": int(row["tide_prediction_rows"]),
+                "hf_tide_prediction_rows": int(row["hf_tide_prediction_rows"]),
                 "high_low_prediction_rows": int(row["high_low_prediction_rows"]),
             }
         )
@@ -2448,6 +2523,7 @@ def _delete_stale_recent_epochs(
     if not stale_epoch_ids:
         return {
             "high_low_prediction_rows_deleted": 0,
+            "hf_tide_prediction_rows_deleted": 0,
             "tide_prediction_rows_deleted": 0,
             "constituent_rows_deleted": 0,
             "datum_rows_deleted": 0,
@@ -2456,6 +2532,7 @@ def _delete_stale_recent_epochs(
 
     deleted = {
         "high_low_prediction_rows_deleted": 0,
+        "hf_tide_prediction_rows_deleted": 0,
         "tide_prediction_rows_deleted": 0,
         "constituent_rows_deleted": 0,
         "datum_rows_deleted": 0,
@@ -2471,6 +2548,15 @@ def _delete_stale_recent_epochs(
             (stale_epoch_ids,),
         )
         deleted["high_low_prediction_rows_deleted"] = int(cur.rowcount)
+
+        cur.execute(
+            """
+            DELETE FROM public.hf_tide_prediction
+            WHERE epoch_id = ANY(%s::bigint[])
+            """,
+            (stale_epoch_ids,),
+        )
+        deleted["hf_tide_prediction_rows_deleted"] = int(cur.rowcount)
 
         cur.execute(
             """
@@ -2575,11 +2661,13 @@ def _run_stale_recent_epoch_cleanup(
                     f"datums={stale_epoch['datum_rows']} | "
                     f"constituents={stale_epoch['constituent_rows']} | "
                     f"tide_predictions={stale_epoch['tide_prediction_rows']} | "
+                    f"hf_tide_predictions={stale_epoch['hf_tide_prediction_rows']} | "
                     f"high_low_predictions={stale_epoch['high_low_prediction_rows']}"
                 )
 
         deleted = {
             "high_low_prediction_rows_deleted": 0,
+            "hf_tide_prediction_rows_deleted": 0,
             "tide_prediction_rows_deleted": 0,
             "constituent_rows_deleted": 0,
             "datum_rows_deleted": 0,
@@ -2607,6 +2695,7 @@ def _run_stale_recent_epoch_cleanup(
                 f"datums_deleted={deleted['datum_rows_deleted']} | "
                 f"constituents_deleted={deleted['constituent_rows_deleted']} | "
                 f"tide_predictions_deleted={deleted['tide_prediction_rows_deleted']} | "
+                f"hf_tide_predictions_deleted={deleted['hf_tide_prediction_rows_deleted']} | "
                 f"high_low_predictions_deleted={deleted['high_low_prediction_rows_deleted']}"
             )
 
@@ -2622,6 +2711,9 @@ def _run_stale_recent_epoch_cleanup(
             datum_rows_deleted=int(deleted["datum_rows_deleted"]),
             constituent_rows_deleted=int(deleted["constituent_rows_deleted"]),
             tide_prediction_rows_deleted=int(deleted["tide_prediction_rows_deleted"]),
+            hf_tide_prediction_rows_deleted=int(
+                deleted["hf_tide_prediction_rows_deleted"]
+            ),
             high_low_prediction_rows_deleted=int(
                 deleted["high_low_prediction_rows_deleted"]
             ),
@@ -2771,7 +2863,7 @@ def _resolve_record_prediction_db_window(
     record: dict[str, Any],
     epoch_sync: EpochSyncResult | None,
 ) -> PredictionDbWindow | None:
-    """Resolve DB metadata needed by tide/high-low prediction writers.
+    """Resolve DB metadata needed by tide/HF/high-low prediction writers.
 
     This should be called once per processed record and passed to both
     prediction writers. It keeps date_range_by_time_series_quality lookups short
@@ -3255,6 +3347,590 @@ def _sync_record_tide_predictions_to_database(
         notes=notes,
     )
 
+
+def _query_hf_resolution_target(
+    conn,
+    *,
+    time_series_id: int,
+) -> HfResolutionTarget | None:
+    """Return the latest observed HF resolution for one time series.
+
+    This preserves the legacy Level 3 rule: the derived prediction grid follows
+    the resolution attached to the latest row in public.hf_time_series_data.
+    """
+
+    rows = _fetchall_dicts(
+        conn,
+        """
+        WITH latest AS (
+            SELECT h."time"
+            FROM public.hf_time_series_data h
+            WHERE h.time_series_id = %s
+            ORDER BY h."time" DESC
+            LIMIT 1
+        )
+        SELECT DISTINCT
+            h.resolution_id,
+            tr.resolution AS temporal_resolution_code,
+            h."time" AS latest_time
+        FROM public.hf_time_series_data h
+        JOIN public.temporal_resolution tr
+          ON tr.id = h.resolution_id
+        WHERE h.time_series_id = %s
+          AND h."time" = (SELECT "time" FROM latest)
+        ORDER BY h.resolution_id
+        """,
+        (int(time_series_id), int(time_series_id)),
+    )
+
+    if not rows:
+        return None
+
+    if len(rows) > 1:
+        raise RuntimeError(
+            "Multiple HF resolutions occur at the latest observed timestamp for "
+            f"time_series_id={time_series_id}: {rows}. Refusing to choose one."
+        )
+
+    row = rows[0]
+    target = HfResolutionTarget(
+        resolution_id=int(row["resolution_id"]),
+        temporal_resolution_code=str(row["temporal_resolution_code"]),
+        latest_time=_to_database_window_timestamp(row["latest_time"]),
+    )
+
+    # Validate now so a malformed DB resolution fails before any delete/write.
+    minute_resolution_timedelta(target.temporal_resolution_code)
+    return target
+
+
+def _configured_hf_prediction_window() -> tuple[pd.Timestamp, pd.Timestamp]:
+    start = _to_database_window_timestamp(DATABASE_POLICY.hf_prediction_start)
+    end = _to_database_window_timestamp(DATABASE_POLICY.hf_prediction_end)
+
+    if end < start:
+        raise ValueError(
+            "DATABASE_POLICY.hf_prediction_end precedes hf_prediction_start: "
+            f"{start} to {end}."
+        )
+
+    if int(DATABASE_POLICY.hf_prediction_chunk_days) <= 0:
+        raise ValueError(
+            "DATABASE_POLICY.hf_prediction_chunk_days must be a positive integer."
+        )
+
+    return start, end
+
+
+def _build_hf_tide_prediction_plans(
+    *,
+    record: dict[str, Any],
+    epoch_sync: EpochSyncResult,
+    prediction_window: PredictionDbWindow,
+    resolution_target: HfResolutionTarget | None,
+) -> tuple[list[HfTidePredictionPlan], list[str]]:
+    """Build one HF plan for every saved hourly prediction product.
+
+    The insert window is the intersection of:
+      1. the generated hourly product,
+      2. the regular tide-prediction DB-authorized window, and
+      3. the configured 2016-2035 HF product window.
+
+    A plan is retained even when that intersection is empty so a rerun can
+    reconcile/delete any stale HF rows for the same product identity.
+    """
+
+    if not epoch_sync.epoch_id_by_name:
+        raise RuntimeError(
+            f"{record['record_id']}: cannot build hf_tide_prediction plans because "
+            "epoch_sync.epoch_id_by_name is empty. Enable write_epochs=True "
+            "before write_hf_tide_predictions=True."
+        )
+
+    hourly_frames = record.get("_hourly_prediction_frames") or {}
+    hf_start, hf_end = _configured_hf_prediction_window()
+    interval = (
+        None
+        if resolution_target is None
+        else minute_resolution_timedelta(
+            resolution_target.temporal_resolution_code
+        )
+    )
+    plans: list[HfTidePredictionPlan] = []
+    notes: list[str] = []
+    seen_epoch_names: set[str] = set()
+
+    prediction_summaries = record.get("hourly_predictions") or []
+    if not prediction_summaries:
+        notes.append("No saved hourly prediction products available for HF generation.")
+
+    for prediction_summary in prediction_summaries:
+        epoch_name = str(prediction_summary["epoch"])
+        prediction_key = str(prediction_summary["prediction_key"])
+
+        if epoch_name in seen_epoch_names:
+            raise RuntimeError(
+                f"{record['record_id']}: duplicate saved hourly prediction product "
+                f"for epoch {epoch_name!r}; HF database identity would collide."
+            )
+        seen_epoch_names.add(epoch_name)
+
+        if epoch_name not in epoch_sync.epoch_id_by_name:
+            raise RuntimeError(
+                f"{record['record_id']}: HF prediction epoch {epoch_name!r} "
+                f"is missing from epoch_sync.epoch_id_by_name="
+                f"{epoch_sync.epoch_id_by_name}."
+            )
+
+        if prediction_key not in hourly_frames:
+            raise RuntimeError(
+                f"{record['record_id']}: missing hourly prediction frame for HF "
+                f"prediction_key={prediction_key!r}."
+            )
+
+        allowed_start, allowed_end, window_notes = _allowed_hourly_prediction_window(
+            record=record,
+            epoch_sync=epoch_sync,
+            prediction_summary=prediction_summary,
+            prediction_window=prediction_window,
+        )
+        notes.extend(window_notes)
+
+        frame = hourly_frames[prediction_key]
+        if frame.empty:
+            raise RuntimeError(
+                f"{record['record_id']} {epoch_name}: hourly prediction frame is "
+                "empty and cannot be used for HF interpolation."
+            )
+        if not {"time", "prediction_mm"}.issubset(frame.columns):
+            raise RuntimeError(
+                f"{record['record_id']} {epoch_name}: hourly prediction frame "
+                "must contain time and prediction_mm."
+            )
+
+        frame_times = pd.to_datetime(frame["time"], errors="raise")
+        if getattr(frame_times.dt, "tz", None) is not None:
+            frame_times = frame_times.dt.tz_convert("UTC").dt.tz_localize(None)
+        source_start = pd.Timestamp(frame_times.min())
+        source_end = pd.Timestamp(frame_times.max())
+
+        insert_start = max(
+            pd.Timestamp(allowed_start),
+            hf_start,
+            source_start,
+        )
+        insert_end = min(
+            pd.Timestamp(allowed_end),
+            hf_end,
+            source_end,
+        )
+
+        if insert_end < insert_start:
+            rows_planned = 0
+            plan_insert_start: pd.Timestamp | None = None
+            plan_insert_end: pd.Timestamp | None = None
+            notes.append(
+                f"No HF overlap for {record['record_id']} {epoch_name}: regular "
+                f"prediction window={allowed_start} to {allowed_end}; configured "
+                f"HF window={hf_start} to {hf_end}. No HF rows will be inserted."
+            )
+        else:
+            plan_insert_start = insert_start
+            plan_insert_end = insert_end
+            if interval is None:
+                rows_planned = 0
+                notes.append(
+                    f"HF overlap exists for {epoch_name} from {insert_start} to "
+                    f"{insert_end}, but no target HF resolution has been resolved."
+                )
+            else:
+                rows_planned = hf_prediction_row_count(
+                    insert_start,
+                    insert_end,
+                    interval,
+                )
+                notes.append(
+                    f"HF prediction for {epoch_name} will use full-precision hourly "
+                    f"values and natural cubic-spline interpolation at "
+                    f"{resolution_target.temporal_resolution_code}: "
+                    f"{insert_start} to {insert_end}."
+                )
+
+        plans.append(
+            HfTidePredictionPlan(
+                epoch_name=epoch_name,
+                epoch_id=int(epoch_sync.epoch_id_by_name[epoch_name]),
+                time_series_id=int(epoch_sync.time_series_id),
+                resolution_id=(
+                    None
+                    if resolution_target is None
+                    else int(resolution_target.resolution_id)
+                ),
+                temporal_resolution_code=(
+                    None
+                    if resolution_target is None
+                    else str(resolution_target.temporal_resolution_code)
+                ),
+                interval=interval,
+                # Reconcile the complete configured HF product window for this
+                # time-series/epoch, even when the current hourly product has no
+                # overlap. The delete step removes all older resolution variants.
+                delete_start=hf_start,
+                delete_end=hf_end,
+                insert_start=plan_insert_start,
+                insert_end=plan_insert_end,
+                rows_planned=int(rows_planned),
+                hourly_frame=frame,
+            )
+        )
+
+    return plans, notes
+
+
+def _log_hf_tide_prediction_db_plan(
+    record: dict[str, Any],
+    *,
+    resolution_target: HfResolutionTarget | None,
+    plans: list[HfTidePredictionPlan],
+    notes: list[str],
+) -> None:
+    rows_planned = sum(plan.rows_planned for plan in plans)
+    resolution_text = (
+        "none"
+        if resolution_target is None
+        else (
+            f"{resolution_target.temporal_resolution_code} "
+            f"(resolution_id={resolution_target.resolution_id}, "
+            f"latest_hf_time={resolution_target.latest_time})"
+        )
+    )
+
+    log(
+        f"{record['record_id']}: database hf_tide_prediction sync plan | "
+        f"rows={rows_planned} | products={len(plans)} | "
+        f"resolution={resolution_text} | value_units=meters | "
+        f"write_hf_tide_predictions={DATABASE_POLICY.write_hf_tide_predictions}"
+    )
+
+    for note in notes:
+        log(f"{record['record_id']}: hf_tide_prediction note | {note}")
+
+    for plan in plans:
+        log(
+            f"{record['record_id']}: "
+            f"{'REPLACE' if DATABASE_POLICY.write_hf_tide_predictions else 'WOULD REPLACE'} "
+            f"HF tide_prediction rows for epoch {plan.epoch_name} | "
+            f"delete_window={plan.delete_start} to {plan.delete_end} | "
+            f"insert_window={plan.insert_start} to {plan.insert_end} | "
+            f"rows={plan.rows_planned}"
+        )
+
+
+def _delete_hf_tide_prediction_windows(
+    conn,
+    plans: list[HfTidePredictionPlan],
+) -> int:
+    rows_deleted = 0
+
+    with conn.cursor() as cur:
+        for plan in plans:
+            cur.execute(
+                """
+                DELETE FROM public.hf_tide_prediction
+                WHERE time_series_id = %s
+                  AND epoch_id = %s
+                  AND "time" >= %s
+                  AND "time" <= %s
+                """,
+                (
+                    int(plan.time_series_id),
+                    int(plan.epoch_id),
+                    pd.Timestamp(plan.delete_start).to_pydatetime(),
+                    pd.Timestamp(plan.delete_end).to_pydatetime(),
+                ),
+            )
+            rows_deleted += int(cur.rowcount)
+
+    return rows_deleted
+
+
+def _copy_hf_prediction_chunk(
+    cursor,
+    chunk: pd.DataFrame,
+) -> int:
+    if chunk.empty:
+        return 0
+
+    buffer = StringIO()
+    chunk.loc[
+        :, ["time", "value", "epoch_id", "resolution_id", "time_series_id"]
+    ].to_csv(
+        buffer,
+        index=False,
+        header=False,
+        date_format="%Y-%m-%d %H:%M:%S",
+    )
+    buffer.seek(0)
+
+    cursor.copy_expert(
+        """
+        COPY public.hf_tide_prediction (
+            "time",
+            value,
+            epoch_id,
+            resolution_id,
+            time_series_id
+        )
+        FROM STDIN WITH (FORMAT CSV)
+        """,
+        buffer,
+    )
+    return int(len(chunk))
+
+
+def _insert_hf_tide_prediction_plans(
+    conn,
+    plans: list[HfTidePredictionPlan],
+) -> int:
+    """Stream HF rows to TimescaleDB without materializing the full window."""
+
+    rows_written = 0
+
+    with conn.cursor() as cur:
+        for plan in plans:
+            if plan.insert_start is None or plan.insert_end is None:
+                continue
+
+            if plan.interval is None or plan.resolution_id is None:
+                raise RuntimeError(
+                    f"{plan.epoch_name}: HF insert window exists but the target "
+                    "resolution was not resolved."
+                )
+
+            for chunk in iter_hf_prediction_chunks(
+                plan.hourly_frame,
+                start=plan.insert_start,
+                end=plan.insert_end,
+                interval=plan.interval,
+                chunk_days=int(DATABASE_POLICY.hf_prediction_chunk_days),
+                mm_to_meters=float(
+                    DATABASE_POLICY.prediction_value_mm_to_database_meters
+                ),
+                value_decimal_places=int(
+                    DATABASE_POLICY.prediction_value_decimal_places
+                ),
+            ):
+                chunk["epoch_id"] = int(plan.epoch_id)
+                chunk["resolution_id"] = int(plan.resolution_id)
+                chunk["time_series_id"] = int(plan.time_series_id)
+                rows_written += _copy_hf_prediction_chunk(cur, chunk)
+
+    return rows_written
+
+
+def _sync_record_hf_tide_predictions_to_database(
+    record: dict[str, Any],
+    *,
+    epoch_sync: EpochSyncResult | None,
+    prediction_window: PredictionDbWindow | None = None,
+) -> HfTidePredictionSyncResult | None:
+    """Resolve, log, and optionally write first-class HF prediction products."""
+
+    if (
+        not DATABASE_POLICY.log_hf_tide_prediction_plan
+        and not DATABASE_POLICY.write_hf_tide_predictions
+    ):
+        return None
+
+    if epoch_sync is None:
+        log(
+            f"{record['record_id']}: database hf_tide_prediction sync skipped | "
+            "no epoch sync result available"
+        )
+        return None
+
+    if not epoch_sync.epoch_id_by_name:
+        if DATABASE_POLICY.write_hf_tide_predictions:
+            raise RuntimeError(
+                f"{record['record_id']}: write_hf_tide_predictions=True requires "
+                "populated epoch_sync.epoch_id_by_name. Enable write_epochs=True "
+                "first."
+            )
+
+        notes = ["No epoch IDs available."]
+        _log_hf_tide_prediction_db_plan(
+            record,
+            resolution_target=None,
+            plans=[],
+            notes=notes,
+        )
+        return HfTidePredictionSyncResult(
+            record_id=str(record["record_id"]),
+            station_kind=str(record["station_kind"]),
+            time_series_id=int(epoch_sync.time_series_id),
+            id_from_source=str(epoch_sync.id_from_source),
+            input_basis_code=str(epoch_sync.input_basis_code),
+            input_basis_id=int(epoch_sync.input_basis_id),
+            resolution_id=None,
+            temporal_resolution_code=None,
+            rows_planned=0,
+            rows_deleted=0,
+            rows_written=0,
+            rows_skipped=0,
+            write_hf_tide_predictions=bool(
+                DATABASE_POLICY.write_hf_tide_predictions
+            ),
+            notes=notes,
+        )
+
+    if prediction_window is None:
+        prediction_window = _resolve_record_prediction_db_window(
+            record=record,
+            epoch_sync=epoch_sync,
+        )
+
+    if prediction_window is None:
+        raise RuntimeError(
+            f"{record['record_id']}: could not resolve prediction DB window."
+        )
+
+    # Build the overlap-only plan first. This lets an old RQ product with no
+    # 2016-2035 overlap reconcile stale rows without requiring that historical
+    # time_series_id to have HF observations or a resolvable HF resolution.
+    plans, notes = _build_hf_tide_prediction_plans(
+        record=record,
+        epoch_sync=epoch_sync,
+        prediction_window=prediction_window,
+        resolution_target=None,
+    )
+    has_insert_overlap = any(
+        plan.insert_start is not None and plan.insert_end is not None
+        for plan in plans
+    )
+
+    resolution_target: HfResolutionTarget | None = None
+    rows_deleted = 0
+    rows_written = 0
+
+    needs_connection = bool(
+        has_insert_overlap or DATABASE_POLICY.write_hf_tide_predictions
+    )
+
+    if needs_connection:
+        with _tsdb_connection() as (conn, _ts_processor):
+            if has_insert_overlap:
+                resolution_target = _query_hf_resolution_target(
+                    conn,
+                    time_series_id=epoch_sync.time_series_id,
+                )
+
+                if resolution_target is None:
+                    missing_resolution_note = (
+                        "HF prediction overlap exists, but no rows were found in "
+                        "public.hf_time_series_data for this time_series_id, so "
+                        "no target minute resolution could be resolved."
+                    )
+                    notes.append(missing_resolution_note)
+
+                    if DATABASE_POLICY.write_hf_tide_predictions:
+                        raise RuntimeError(
+                            f"{record['record_id']}: "
+                            "write_hf_tide_predictions=True and an HF product "
+                            "overlap exists, but no target resolution exists in "
+                            "public.hf_time_series_data."
+                        )
+                else:
+                    # Rebuild with the resolved interval so row counts and insert
+                    # metadata are exact. The underlying hourly product/window
+                    # selection is unchanged.
+                    plans, notes = _build_hf_tide_prediction_plans(
+                        record=record,
+                        epoch_sync=epoch_sync,
+                        prediction_window=prediction_window,
+                        resolution_target=resolution_target,
+                    )
+
+            _log_hf_tide_prediction_db_plan(
+                record,
+                resolution_target=resolution_target,
+                plans=plans,
+                notes=notes,
+            )
+
+            if DATABASE_POLICY.write_hf_tide_predictions:
+                # Keep the transaction boundary at one epoch-specific HF product.
+                # A full 1-minute 2016-2035 product is more than ten million rows;
+                # committing each independently avoids multiplying that transaction
+                # size when save_predictions_for_all_epochs=True. Reruns remain
+                # idempotent because each product is fully replaced.
+                for plan in plans:
+                    try:
+                        plan_rows_deleted = _delete_hf_tide_prediction_windows(
+                            conn,
+                            [plan],
+                        )
+                        plan_rows_written = _insert_hf_tide_prediction_plans(
+                            conn,
+                            [plan],
+                        )
+                        if plan_rows_written != plan.rows_planned:
+                            raise RuntimeError(
+                                f"{record['record_id']} {plan.epoch_name}: HF write "
+                                f"count mismatch: expected={plan.rows_planned}, "
+                                f"written={plan_rows_written}."
+                            )
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+
+                    rows_deleted += int(plan_rows_deleted)
+                    rows_written += int(plan_rows_written)
+                    log(
+                        f"{record['record_id']} {plan.epoch_name}: database "
+                        "hf_tide_prediction product complete | "
+                        f"rows_deleted={plan_rows_deleted} | "
+                        f"rows_written={plan_rows_written}"
+                    )
+
+                log(
+                    f"{record['record_id']}: database hf_tide_prediction sync complete | "
+                    f"rows_deleted={rows_deleted} | rows_written={rows_written}"
+                )
+    else:
+        _log_hf_tide_prediction_db_plan(
+            record,
+            resolution_target=None,
+            plans=plans,
+            notes=notes,
+        )
+
+    return HfTidePredictionSyncResult(
+        record_id=str(record["record_id"]),
+        station_kind=str(record["station_kind"]),
+        time_series_id=int(epoch_sync.time_series_id),
+        id_from_source=str(epoch_sync.id_from_source),
+        input_basis_code=str(epoch_sync.input_basis_code),
+        input_basis_id=int(epoch_sync.input_basis_id),
+        resolution_id=(
+            None
+            if resolution_target is None
+            else int(resolution_target.resolution_id)
+        ),
+        temporal_resolution_code=(
+            None
+            if resolution_target is None
+            else str(resolution_target.temporal_resolution_code)
+        ),
+        rows_planned=int(sum(plan.rows_planned for plan in plans)),
+        rows_deleted=int(rows_deleted),
+        rows_written=int(rows_written),
+        rows_skipped=0,
+        write_hf_tide_predictions=bool(
+            DATABASE_POLICY.write_hf_tide_predictions
+        ),
+        notes=notes,
+    )
 
 def _build_high_low_prediction_db_dataframe(
     *,
@@ -3781,6 +4457,25 @@ def _run_prediction_cutover_cleanup() -> None:
 
                     cur.execute(
                         """
+                        DELETE FROM public.hf_tide_prediction p
+                        USING public.epoch e
+                        WHERE p.epoch_id = e.id
+                          AND p.time_series_id = %s
+                          AND e.time_series_id = %s
+                          AND e.input_basis_id = %s
+                          AND p."time" >= %s
+                        """,
+                        (
+                            int(old_time_series_id),
+                            int(old_time_series_id),
+                            int(best_available_input_basis_id),
+                            cutover_time.to_pydatetime(),
+                        ),
+                    )
+                    hf_tide_rows_deleted = int(cur.rowcount)
+
+                    cur.execute(
+                        """
                         DELETE FROM public.high_low_prediction p
                         USING public.epoch e
                         WHERE p.epoch_id = e.id
@@ -3808,6 +4503,7 @@ def _run_prediction_cutover_cleanup() -> None:
                 "prediction cutover cleanup complete | "
                 f"old={old_id_from_source} | "
                 f"tide_prediction_rows_deleted={tide_rows_deleted} | "
+                f"hf_tide_prediction_rows_deleted={hf_tide_rows_deleted} | "
                 f"high_low_prediction_rows_deleted={high_low_rows_deleted}"
             )
 
@@ -3982,7 +4678,7 @@ def _delete_predictions_outside_best_available_windows(
     actions: list[dict[str, Any]],
     best_available_input_basis_id: int,
     hourly_resolution_id: int,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Delete stale superseded best_available prediction rows.
 
     For superseded BA targets, keep only rows attached to the primary prediction
@@ -3990,6 +4686,7 @@ def _delete_predictions_outside_best_available_windows(
     """
 
     tide_prediction_rows_deleted = 0
+    hf_tide_prediction_rows_deleted = 0
     high_low_prediction_rows_deleted = 0
 
     with conn.cursor() as cur:
@@ -4051,7 +4748,55 @@ def _delete_predictions_outside_best_available_windows(
             )
             tide_prediction_rows_deleted += int(cur.rowcount)
 
-            # 3. Delete superseded BA high/low predictions outside the
+            # 3. Delete superseded BA HF tide predictions outside the
+            # DB-authoritative FD valid window.
+            cur.execute(
+                """
+                DELETE FROM public.hf_tide_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND (
+                    p."time" < %s
+                    OR p."time" > %s
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                    valid_start,
+                    valid_end,
+                ),
+            )
+            hf_tide_prediction_rows_deleted += int(cur.rowcount)
+
+            # 4. Delete superseded BA HF predictions attached to stale
+            # non-primary / non-prediction-basis epochs.
+            cur.execute(
+                """
+                DELETE FROM public.hf_tide_prediction p
+                USING public.epoch e
+                WHERE p.epoch_id = e.id
+                  AND p.time_series_id = %s
+                  AND e.time_series_id = %s
+                  AND e.input_basis_id = %s
+                  AND NOT (
+                    COALESCE(e.primary, false) = true
+                    AND COALESCE(e.is_prediction_basis, false) = true
+                  )
+                """,
+                (
+                    old_time_series_id,
+                    old_time_series_id,
+                    int(best_available_input_basis_id),
+                ),
+            )
+            hf_tide_prediction_rows_deleted += int(cur.rowcount)
+
+            # 5. Delete superseded BA high/low predictions outside the
             # DB-authoritative FD valid window.
             cur.execute(
                 """
@@ -4076,7 +4821,7 @@ def _delete_predictions_outside_best_available_windows(
             )
             high_low_prediction_rows_deleted += int(cur.rowcount)
 
-            # 4. Delete superseded BA high/low predictions attached to stale
+            # 6. Delete superseded BA high/low predictions attached to stale
             # non-primary / non-prediction-basis epochs, even if they fall inside
             # the valid FD window.
             cur.execute(
@@ -4100,7 +4845,11 @@ def _delete_predictions_outside_best_available_windows(
             )
             high_low_prediction_rows_deleted += int(cur.rowcount)
 
-    return tide_prediction_rows_deleted, high_low_prediction_rows_deleted
+    return (
+        tide_prediction_rows_deleted,
+        hf_tide_prediction_rows_deleted,
+        high_low_prediction_rows_deleted,
+    )
 
 
 def _run_auto_best_available_prediction_cleanup(
@@ -4151,6 +4900,7 @@ def _run_auto_best_available_prediction_cleanup(
                 temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
                 actions=[],
                 tide_prediction_rows_deleted=0,
+                hf_tide_prediction_rows_deleted=0,
                 high_low_prediction_rows_deleted=0,
                 write_cleanup=bool(DATABASE_POLICY.write_prediction_auto_cleanup),
                 notes=notes,
@@ -4185,11 +4935,12 @@ def _run_auto_best_available_prediction_cleanup(
                 )
 
         tide_rows_deleted = 0
+        hf_tide_rows_deleted = 0
         high_low_rows_deleted = 0
 
         if DATABASE_POLICY.write_prediction_auto_cleanup and actions:
             try:
-                tide_rows_deleted, high_low_rows_deleted = (
+                tide_rows_deleted, hf_tide_rows_deleted, high_low_rows_deleted = (
                     _delete_predictions_outside_best_available_windows(
                         conn,
                         actions=actions,
@@ -4206,6 +4957,7 @@ def _run_auto_best_available_prediction_cleanup(
             log(
                 "prediction auto cleanup complete | "
                 f"tide_prediction_rows_deleted={tide_rows_deleted} | "
+                f"hf_tide_prediction_rows_deleted={hf_tide_rows_deleted} | "
                 f"high_low_prediction_rows_deleted={high_low_rows_deleted}"
             )
 
@@ -4216,6 +4968,7 @@ def _run_auto_best_available_prediction_cleanup(
             temporal_resolution_code=DATABASE_POLICY.hourly_temporal_resolution_code,
             actions=actions,
             tide_prediction_rows_deleted=int(tide_rows_deleted),
+            hf_tide_prediction_rows_deleted=int(hf_tide_rows_deleted),
             high_low_prediction_rows_deleted=int(high_low_rows_deleted),
             write_cleanup=bool(DATABASE_POLICY.write_prediction_auto_cleanup),
             notes=notes,
@@ -4789,6 +5542,19 @@ def _run_station(station_id: str) -> None:
             else asdict(fd_tide_prediction_sync)
         )
 
+        fd_hf_tide_prediction_sync = (
+            _sync_record_hf_tide_predictions_to_database(
+                fd_record,
+                epoch_sync=fd_epoch_sync,
+                prediction_window=fd_prediction_window,
+            )
+        )
+        fd_record["database_hf_tide_prediction_sync"] = (
+            None
+            if fd_hf_tide_prediction_sync is None
+            else asdict(fd_hf_tide_prediction_sync)
+        )
+
         fd_high_low_prediction_sync = (
             _sync_record_high_low_predictions_to_database(
                 fd_record,
@@ -4875,6 +5641,17 @@ def _run_station(station_id: str) -> None:
         )
         rq_record["database_tide_prediction_sync"] = (
             None if rq_tide_prediction_sync is None else asdict(rq_tide_prediction_sync)
+        )
+
+        rq_hf_tide_prediction_sync = _sync_record_hf_tide_predictions_to_database(
+            rq_record,
+            epoch_sync=rq_epoch_sync,
+            prediction_window=rq_prediction_window,
+        )
+        rq_record["database_hf_tide_prediction_sync"] = (
+            None
+            if rq_hf_tide_prediction_sync is None
+            else asdict(rq_hf_tide_prediction_sync)
         )
 
         rq_high_low_prediction_sync = _sync_record_high_low_predictions_to_database(
@@ -4975,6 +5752,7 @@ def _run_station(station_id: str) -> None:
                 f"- Actions planned: `{len(prediction_auto_cleanup['actions'])}`",
                 f"- Write cleanup: `{prediction_auto_cleanup['write_cleanup']}`",
                 f"- Tide prediction rows deleted: `{prediction_auto_cleanup['tide_prediction_rows_deleted']}`",
+                f"- HF tide prediction rows deleted: `{prediction_auto_cleanup['hf_tide_prediction_rows_deleted']}`",
                 f"- High/low prediction rows deleted: `{prediction_auto_cleanup['high_low_prediction_rows_deleted']}`",
             ]
         )
@@ -5102,6 +5880,27 @@ def _run_station(station_id: str) -> None:
                     + "`"
                 )
 
+        hf_tide_prediction_sync = record.get("database_hf_tide_prediction_sync")
+
+        if hf_tide_prediction_sync is None:
+            md_lines.append("- Database HF tide prediction sync: none")
+        else:
+            md_lines.append(
+                "- Database HF tide prediction sync: "
+                f"`resolution={hf_tide_prediction_sync['temporal_resolution_code']}`, "
+                f"`rows_planned={hf_tide_prediction_sync['rows_planned']}`, "
+                f"`rows_deleted={hf_tide_prediction_sync['rows_deleted']}`, "
+                f"`rows_written={hf_tide_prediction_sync['rows_written']}`, "
+                f"`write_hf_tide_predictions={hf_tide_prediction_sync['write_hf_tide_predictions']}`"
+            )
+
+            if hf_tide_prediction_sync.get("notes"):
+                md_lines.append(
+                    "- Database HF tide prediction notes: `"
+                    + " | ".join(hf_tide_prediction_sync["notes"])
+                    + "`"
+                )
+
         high_low_prediction_sync = record.get("database_high_low_prediction_sync")
 
         if high_low_prediction_sync is None:
@@ -5121,6 +5920,23 @@ def _run_station(station_id: str) -> None:
                     + " | ".join(high_low_prediction_sync["notes"])
                     + "`"
                 )
+
+        stale_recent_cleanup = record.get(
+            "database_stale_recent_epoch_cleanup"
+        )
+
+        if stale_recent_cleanup is None:
+            md_lines.append("- Database stale RECENT epoch cleanup: none")
+        else:
+            md_lines.append(
+                "- Database stale RECENT epoch cleanup: "
+                f"`stale_epochs={len(stale_recent_cleanup['stale_epochs'])}`, "
+                f"`epochs_deleted={stale_recent_cleanup['epoch_rows_deleted']}`, "
+                f"`tide_rows_deleted={stale_recent_cleanup['tide_prediction_rows_deleted']}`, "
+                f"`hf_tide_rows_deleted={stale_recent_cleanup['hf_tide_prediction_rows_deleted']}`, "
+                f"`high_low_rows_deleted={stale_recent_cleanup['high_low_prediction_rows_deleted']}`, "
+                f"`write_cleanup={stale_recent_cleanup['write_cleanup']}`"
+            )
 
         md_lines.append(f"- Prediction basis epoch: `{record['prediction_basis_epoch']}`")
         md_lines.append(f"- Prediction scope: `{record['prediction_scope']}`")

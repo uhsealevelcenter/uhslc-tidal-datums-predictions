@@ -7,3 +7,4 @@ matplotlib
 utide
 requests
 pyyaml
+psycopg2-binary

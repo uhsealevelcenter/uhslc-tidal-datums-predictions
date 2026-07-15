@@ -14,11 +14,14 @@ It is prepared for handoff into another repository or another computer.
 
 ### Core scripts
 - `core.py` — main processing logic
+- `hf_tide_predictions.py` — full-precision hourly-to-HF natural cubic-spline interpolation
 - `tidal_batch.py` — command-line driver
 - `scripts/run_station_datums_predictions.py` — datums/predictions runner for one, multiple, or all stations
 - `scripts/run_station_datums_only.py` — datums-only runner for one, multiple, or all stations
 - `scripts/update_switch_levels.py` — refresh cached `LEV`/`LEVB` elevations from the live `.din` directory
-- `tests/test_core_unittest.py` — unit tests using `unittest`
+- `tests/test_core_unittest.py` — core unit tests using `unittest`
+- `tests/test_hf_tide_predictions_unittest.py` — HF interpolation and chunking tests
+- `tests/test_hf_database_planning_unittest.py` — HF product-window planning tests
 
 ### Documentation
 - `docs/HumanPreparedInstructions_TidalDatumsPredictions.md` — Markdown transcription of the human-authored instruction document
@@ -44,11 +47,12 @@ This prototype was developed in Python 3.11 and used:
 - `utide`
 - `requests`
 - `PyYAML`
+- `psycopg2` / `psycopg2-binary` for database synchronization
 
 Suggested install example:
 
 ```bash
-pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
+pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml psycopg2-binary
 ```
 
 ## Current Functional Status
@@ -63,6 +67,7 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 - Full RQ ERDDAP spans were confirmed for station `002` versions `A`, `B`, `C`, `D`.
 - Live loader integration tests now pass for station `007` FD and RQ versions `A` and `B`.
 - Saved predictions are record-level products based on prediction_basis_epoch by default. If PREDICTION_POLICY.save_predictions_for_all_epochs is set to True in tidal_config.py, the workflow writes one saved prediction product for every selected epoch while still marking prediction_basis_epoch as the default/recommended prediction basis.
+- HF tide predictions are first-class database products derived from every saved hourly prediction product. They use full-precision hourly values, natural cubic-spline interpolation, the latest minute-based resolution in `hf_time_series_data`, and the configured 2016-2035 product window. RQ products with no overlap produce no HF inserts.
 - Station diagnostic runners now accept `--station-id` and write to `artifacts/datums_predictions/station###/` and `artifacts/datums_only/station###/`.
 
 ### Known limitations
@@ -78,6 +83,41 @@ pip install numpy pandas xarray netCDF4 scipy matplotlib utide requests pyyaml
 3. **Refine RQ mapping** to reconcile ERDDAP exposure vs live metadata records.
 4. **Expand harmonic constituents** and align more closely with legacy software behavior.
 5. **Add integration tests** for real ERDDAP station runs.
+
+## HF Tide Prediction Database Integration
+
+`DATABASE_POLICY.write_hf_tide_predictions` enables synchronization to
+`public.hf_tide_prediction`. It requires regular tide-prediction writes and the
+core epoch/datum/constituent write set to be enabled. For each saved hourly
+prediction product, the runner:
+
+1. reuses the same `time_series_id` and resolved `epoch_id`;
+2. applies the same FD/RQ database-authorized prediction window;
+3. intersects that window with `hf_prediction_start` through
+   `hf_prediction_end` (currently 2016-01-01 through 2035-12-31 23:00);
+4. resolves the target minute grid from the latest row in
+   `public.hf_time_series_data`; and
+5. streams natural cubic-spline output to TimescaleDB in bounded chunks.
+
+Stale `RECENT_*` cleanup, automatic superseded-best-available cleanup, and
+explicit cutover cleanup all include `public.hf_tide_prediction`.
+
+HF writes are disabled by default. A production write configuration must enable
+the authoritative hourly product and the atomic core-table write set as well:
+
+```python
+DATABASE_POLICY = DatabasePolicy(
+    write_epochs=True,
+    write_datums=True,
+    write_constituents=True,
+    write_tide_predictions=True,
+    write_hf_tide_predictions=True,
+)
+```
+
+The integration assumes the existing `public.hf_tide_prediction` schema used by
+the legacy Level 3 loader: `time`, `value`, `epoch_id`, `resolution_id`, and
+`time_series_id`.
 
 ## Epoch Selection Summary
 - Configured epoch hierarchy is `NTDE_2002-2020`, `NTDE_1983-2001`, `IPCC-AR6_1995-2014`, `PREDICTION (abbreviated PRED)`, and `RECENT`.

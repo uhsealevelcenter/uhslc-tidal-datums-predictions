@@ -97,6 +97,17 @@ class DatabasePolicy:
     write_tide_predictions: bool = False
     log_tide_prediction_plan: bool = True
 
+    # High-frequency tide predictions are derived from every hourly prediction
+    # product selected for database synchronization. Each product is intersected
+    # with both its regular DB-authoritative window and the fixed HF product
+    # window below, then interpolated to the latest minute-based resolution in
+    # public.hf_time_series_data for the same time_series_id.
+    write_hf_tide_predictions: bool = False
+    log_hf_tide_prediction_plan: bool = True
+    hf_prediction_start: pd.Timestamp = pd.Timestamp("2016-01-01 00:00:00")
+    hf_prediction_end: pd.Timestamp = pd.Timestamp("2035-12-31 23:00:00")
+    hf_prediction_chunk_days: int = 31
+
     # Minute high/low prediction writes. FD products use the generated operational
     # high/low window. RQ products are bounded by the DB-authoritative rq/hourly
     # range from date_range_by_time_series_quality.
@@ -139,8 +150,9 @@ class DatabasePolicy:
     #
     # This removes old RECENT_* epochs that are no longer selected by the current
     # run for the same time_series_id + input_basis_id, along with their datum,
-    # constituent, tide_prediction, and high_low_prediction child rows. Stable
-    # named epochs such as NTDE_* and IPCC-* are intentionally not deleted.
+    # constituent, tide_prediction, hf_tide_prediction, and high_low_prediction 
+    # child rows. Stable named epochs such as NTDE_* and IPCC-* are intentionally 
+    # not deleted.
     auto_cleanup_stale_recent_epochs: bool = False
     write_stale_recent_epoch_cleanup: bool = False
     log_stale_recent_epoch_cleanup_plan: bool = True
@@ -153,8 +165,8 @@ class DatabasePolicy:
     #
     # When the unversioned FD source resolves to the current target, earlier FD
     # targets for the same station/priority are treated as superseded. Their
-    # tide_prediction and high_low_prediction rows are trimmed to their valid
-    # materialized-view date_begin/date_end windows.
+    # tide_prediction, hf_tide_prediction, and high_low_prediction rows are 
+    # trimmed to their valid materialized-view date_begin/date_end windows.
     auto_cleanup_superseded_best_available_predictions: bool = False
     write_prediction_auto_cleanup: bool = False
     log_prediction_auto_cleanup_plan: bool = True
@@ -262,21 +274,29 @@ PREDICTION_POLICY = PredictionPolicy(
 HAT_LAT_PREDICTION_START = pd.Timestamp("2000-01-01 00:00:00")
 HAT_LAT_PREDICTION_END = pd.Timestamp("2040-12-31 23:00:00")
 
-# Define what datasets to write to the database.
+# Control which tidal products and cleanup operations may be written to the database.
 DATABASE_POLICY = DatabasePolicy(
-    write_epochs=False,
-    write_datums=False,
-    write_constituents=False,
-    write_tide_predictions=False,
-    write_high_low_predictions=False,
+    write_epochs=False,  # Write station analysis epochs.
+    write_datums=False,  # Write calculated tidal datums.
+    write_constituents=False,  # Write harmonic constituents.
+    write_tide_predictions=False,  # Write continuous tide predictions.
+    write_hf_tide_predictions=False,  # Write interpolated high-frequency tide predictions.
+    write_high_low_predictions=False,  # Write high/low tide predictions.
+
+    # Automatically remove obsolete rolling RECENT epochs and child rows.
     auto_cleanup_stale_recent_epochs=False,
-    write_stale_recent_epoch_cleanup=False,
+    write_stale_recent_epoch_cleanup=False,  # Apply detected epoch deletions.
+
+    # Automatically trim superseded best-available versions to DB-valid ranges.
     auto_cleanup_superseded_best_available_predictions=False,
-    write_prediction_auto_cleanup=False,
+    write_prediction_auto_cleanup=False,  # Apply automatic prediction cleanup.
+
+    # Manual cutover override only; normally leave disabled.
     write_prediction_cutover_cleanup=False,
+
+    # Continue on DB/source differences, but report warnings.
     reconciliation_mode="warn",
 )
-
 
 def minute_prediction_window(
     runtime: pd.Timestamp | None = None,
