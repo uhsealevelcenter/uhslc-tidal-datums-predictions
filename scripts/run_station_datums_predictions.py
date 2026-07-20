@@ -41,6 +41,7 @@ from core import (
     clean_hourly_dataframe,
     compute_datums,
     ErddapNoRowsError,
+    ErddapUnavailableError,
     fetch_fd_hourly,
     fetch_rq_hourly,
     fit_harmonics,
@@ -6005,17 +6006,39 @@ def _run_station(station_id: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run datums/predictions diagnostics for one, multiple, or all stations.")
-    parser.add_argument("--station-id", default=DEFAULT_STATION_ID, help="Station id, comma-separated ids, or 'all'.")
+    parser = argparse.ArgumentParser(
+        description="Run datums/predictions diagnostics for one, multiple, or all stations."
+    )
+    parser.add_argument(
+        "--station-id",
+        default=DEFAULT_STATION_ID,
+        help="Station id, comma-separated ids, or 'all'.",
+    )
     args = parser.parse_args()
 
     _validate_database_write_policy_or_die()
 
     station_ids = _resolve_station_ids(args.station_id)
-    log(f"Requested datums_predictions run for {len(station_ids)} station(s): {', '.join(station_ids)}")
-    for station_id in station_ids:
-        _run_station(station_id)
+    log(
+        f"Requested datums_predictions run for {len(station_ids)} "
+        f"station(s): {', '.join(station_ids)}"
+    )
 
+    failed_stations: list[str] = []
+
+    for station_id in station_ids:
+        try:
+            _run_station(station_id)
+        except ErddapUnavailableError as exc:
+            log(f"Station {station_id} aborted due to temporary ERDDAP failure: {exc}")
+            failed_stations.append(station_id)
+
+    if failed_stations:
+        log(
+            "Datums_predictions run completed with temporary ERDDAP failures "
+            f"for station(s): {', '.join(failed_stations)}"
+        )
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()

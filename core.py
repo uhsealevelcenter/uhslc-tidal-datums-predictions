@@ -52,6 +52,11 @@ TIDE_TYPE_EQUALITY_FRACTION = 0.10
 class ErddapNoRowsError(RuntimeError):
     """Raised when ERDDAP returns a valid no-matching-rows response."""
 
+
+class ErddapUnavailableError(RuntimeError):
+    """Raised when a temporary ERDDAP failure persists after retries."""
+
+
 @dataclass
 class Epoch:
     name: str
@@ -208,20 +213,26 @@ def strip_erddap_units_row(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_erddap_csv(url: str) -> pd.DataFrame:
-    last_error = None
-    for attempt in range(4):
+    max_attempts = 4
+
+    for attempt in range(1, max_attempts + 1):
         try:
             r = requests.get(url, timeout=240)
         except requests.RequestException as exc:
-            last_error = exc
-            if attempt < 3:
-                time.sleep(2 * (attempt + 1))
+            if attempt < max_attempts:
+                time.sleep(2 * attempt)
                 continue
-            raise
 
-        if r.ok and not r.text.startswith('Error {'):
+            raise ErddapUnavailableError(
+                f"ERDDAP request failed after {max_attempts} attempts: {exc}"
+            ) from exc
+
+        if r.ok and not r.text.startswith("Error {"):
             df = pd.read_csv(io.StringIO(r.text))
-            df.columns = [re.sub(r'\s*\(.*?\)\s*$', '', str(c)).strip() for c in df.columns]
+            df.columns = [
+                re.sub(r"\s*\(.*?\)\s*$", "", str(column)).strip()
+                for column in df.columns
+            ]
             return strip_erddap_units_row(df)
 
         error_text = r.text[:1200]
@@ -232,16 +243,28 @@ def load_erddap_csv(url: str) -> pd.DataFrame:
         ):
             raise ErddapNoRowsError(error_text)
 
-        last_error = RuntimeError(error_text)
-        retryable = r.status_code in {429, 500, 502, 503, 504} or 'Service Unavailable' in r.text
-        if retryable and attempt < 3:
-            time.sleep(2 * (attempt + 1))
-            continue
-        raise last_error
+        retryable = (
+            r.status_code in {429, 500, 502, 503, 504}
+            or "Service Unavailable" in r.text
+        )
 
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError('Unexpected ERDDAP load failure.')
+        if retryable:
+            if attempt < max_attempts:
+                time.sleep(2 * attempt)
+                continue
+
+            status = f"HTTP {r.status_code}"
+            if r.reason:
+                status = f"{status} {r.reason}"
+
+            raise ErddapUnavailableError(
+                f"ERDDAP remained unavailable after "
+                f"{max_attempts} attempts ({status})."
+            )
+
+        raise RuntimeError(error_text)
+
+    raise RuntimeError("Unexpected ERDDAP load failure.")
 
 
 def _load_json_url(url: str, timeout: int = 240) -> dict:
