@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tidal_config import (
     DATABASE_POLICY,
+    EPOCH_POLICY,
     HAT_LAT_PREDICTION_END,
     HAT_LAT_PREDICTION_START,
 )
@@ -63,6 +64,10 @@ from core import (
 
 
 DEFAULT_STATION_ID = "007"
+
+
+class NoQualifyingEpochError(RuntimeError):
+    """Raised when source rows exist but no configured epoch is eligible."""
 
 
 @dataclass(frozen=True)
@@ -3828,18 +3833,58 @@ def _sync_record_hf_tide_predictions_to_database(
                 if resolution_target is None:
                     missing_resolution_note = (
                         "HF prediction overlap exists, but no rows were found in "
-                        "public.hf_time_series_data for this time_series_id, so "
-                        "no target minute resolution could be resolved."
+                        "public.hf_time_series_data for this exact time_series_id, "
+                        "so no target minute resolution could be resolved. HF "
+                        "synchronization was skipped and existing HF prediction "
+                        "rows were preserved."
                     )
                     notes.append(missing_resolution_note)
 
-                    if DATABASE_POLICY.write_hf_tide_predictions:
+                    _log_hf_tide_prediction_db_plan(
+                        record,
+                        resolution_target=None,
+                        plans=plans,
+                        notes=notes,
+                    )
+
+                    if (
+                        DATABASE_POLICY.write_hf_tide_predictions
+                        and DATABASE_POLICY.reconciliation_mode == "strict"
+                    ):
                         raise RuntimeError(
                             f"{record['record_id']}: "
                             "write_hf_tide_predictions=True and an HF product "
                             "overlap exists, but no target resolution exists in "
                             "public.hf_time_series_data."
                         )
+
+                    if DATABASE_POLICY.write_hf_tide_predictions:
+                        log(
+                            f"{record['record_id']}: database hf_tide_prediction "
+                            "sync skipped in warn mode | no target resolution "
+                            "exists for the exact time_series_id; existing HF "
+                            "prediction rows were preserved"
+                        )
+
+                    return HfTidePredictionSyncResult(
+                        record_id=str(record["record_id"]),
+                        station_kind=str(record["station_kind"]),
+                        time_series_id=int(epoch_sync.time_series_id),
+                        id_from_source=str(epoch_sync.id_from_source),
+                        input_basis_code=str(epoch_sync.input_basis_code),
+                        input_basis_id=int(epoch_sync.input_basis_id),
+                        resolution_id=None,
+                        temporal_resolution_code=None,
+                        rows_planned=0,
+                        rows_deleted=0,
+                        rows_written=0,
+                        rows_skipped=0,
+                        write_hf_tide_predictions=bool(
+                            DATABASE_POLICY.write_hf_tide_predictions
+                        ),
+                        notes=notes,
+                    )
+
                 else:
                     # Rebuild with the resolved interval so row counts and insert
                     # metadata are exact. The underlying hourly product/window
@@ -5133,9 +5178,32 @@ def _run_record(
     log(f"{record_id}: loaded {len(df)} hourly rows ({valid_rows} valid)")
     observation_start = pd.Timestamp(df["time"].min())
     observation_end = pd.Timestamp(df["time"].max())
+
     epochs = select_epochs(df)
+
     if not epochs:
-        raise RuntimeError(f"No qualifying epochs found for {record_id}")
+        valid_times = df.loc[df["sea_level"].notna(), "time"]
+        valid_start = (
+            None
+            if valid_times.empty
+            else pd.Timestamp(valid_times.min())
+        )
+        valid_end = (
+            None
+            if valid_times.empty
+            else pd.Timestamp(valid_times.max())
+        )
+
+        raise NoQualifyingEpochError(
+            f"No qualifying epochs found for {record_id}: "
+            f"total_rows={len(df)}, valid_rows={valid_rows}, "
+            f"observation_window={observation_start} to {observation_end}, "
+            f"valid_window={valid_start} to {valid_end}, "
+            f"minimum_completion_fraction="
+            f"{EPOCH_POLICY.min_completion_fraction}, "
+            f"minimum_recent_months={EPOCH_POLICY.min_recent_months}."
+        )
+
     log(f"{record_id}: selected epochs: {', '.join(ep.name for ep in epochs)}")
 
     datum_by_epoch = {}
@@ -5449,10 +5517,8 @@ def _run_record(
 
 
 def _run_station(station_id: str) -> None:
-    output_root = (
-        Path("/srv/htdocs/uhslc.soest.hawaii.edu/tech/datums_predictions_review")
-        / f"station{station_id}"
-    )
+    project_root = Path(__file__).resolve().parents[1]
+    output_root = project_root / "artifacts" / f"station{station_id}"
     output_root.mkdir(parents=True, exist_ok=True)
     run_last_update = pd.Timestamp.utcnow().tz_localize(None)
     log(f"Starting station {station_id} datums_predictions run")
@@ -5502,6 +5568,32 @@ def _run_station(station_id: str) -> None:
                 "reason": (
                     "No hourly fast-delivery/best-available source rows were "
                     "available from ERDDAP."
+                ),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
+
+    except NoQualifyingEpochError as exc:
+        if (
+            DATABASE_POLICY.require_fd_record
+            or DATABASE_POLICY.reconciliation_mode == "strict"
+        ):
+            raise
+
+        log(
+            f"Station {station_id}: FD/best_available record skipped in warn mode | "
+            f"source rows were available but no analysis epoch qualified: {exc}"
+        )
+
+        summary["skipped_records"].append(
+            {
+                "record_id": station_id,
+                "station_kind": "FD",
+                "reason": (
+                    "Hourly fast-delivery/best-available source rows were "
+                    "available, but no configured analysis epoch met the "
+                    "duration/completion requirements."
                 ),
                 "error_type": type(exc).__name__,
                 "error": str(exc),
@@ -5608,6 +5700,32 @@ def _run_station(station_id: str) -> None:
                     "reason": (
                         "RQ metadata/DB inventory listed this version, but no hourly "
                         "research-quality source rows were available from ERDDAP."
+                    ),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+
+            continue
+
+        except NoQualifyingEpochError as exc:
+            if DATABASE_POLICY.reconciliation_mode == "strict":
+                raise
+
+            log(
+                f"Station {station_id}: RQ record {rq_record_id} skipped in warn mode | "
+                f"source rows were available but no analysis epoch qualified: {exc}"
+            )
+
+            summary["skipped_records"].append(
+                {
+                    "record_id": rq_record_id,
+                    "station_kind": "RQ",
+                    "version": str(version).upper(),
+                    "reason": (
+                        "Hourly research-quality source rows were available, but "
+                        "no configured analysis epoch met the duration/completion "
+                        "requirements."
                     ),
                     "error_type": type(exc).__name__,
                     "error": str(exc),

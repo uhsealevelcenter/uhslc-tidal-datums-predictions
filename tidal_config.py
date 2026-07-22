@@ -180,16 +180,21 @@ class DatabasePolicy:
     # available to this run before any epoch rows are written.
     reconcile_station_inventory: bool = True
 
-    # How to handle DB/ERDDAP inventory gaps discovered during reconciliation.
+    # How to handle DB/ERDDAP inventory gaps and expected record-level
+    # eligibility conditions discovered during processing.
     #
     # "warn":
     #   Continue with records that have both ERDDAP source observations and a
-    #   safe DB target. DB-only records are reported/skipped.
+    #   safe DB target. DB-only records and source records with no qualifying
+    #   analysis epoch are reported/skipped. If an HF product overlaps the
+    #   configured window but the exact target has no observed HF resolution,
+    #   skip only that HF synchronization and preserve existing HF predictions.
     #
     # "strict":
-    #   Raise before processing the station if a DB-authoritative rq/hourly version
-    #   is missing from ERDDAP metadata, or if the FD/best_available DB target cannot
-    #   be resolved. FD-only stations are valid when DB has no rq/hourly date ranges.
+    #   Raise for those record-level conditions. Also raise before processing the
+    #   station if a DB-authoritative rq/hourly version is missing from ERDDAP
+    #   metadata, or if the FD/best_available DB target cannot be resolved.
+    #   FD-only stations are valid when DB has no rq/hourly date ranges.
     #   ERDDAP metadata-only RQ versions are reported but ignored because DB
     #   date_range_by_time_series_quality is authoritative for RQ availability.
     reconciliation_mode: str = "warn"

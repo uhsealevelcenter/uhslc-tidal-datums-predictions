@@ -181,6 +181,130 @@ class HfDatabasePlanningTests(unittest.TestCase):
             ):
                 runner._validate_database_write_policy_or_die()
 
+    def test_missing_hf_resolution_skips_writes_in_warn_mode(self):
+        epoch_name = "RECENT_2015_2017"
+        record = self._record(
+            station_kind="FD",
+            epoch_name=epoch_name,
+            start="2016-01-01 00:00:00",
+            end="2016-01-02 00:00:00",
+        )
+        epoch_sync = self._epoch_sync(
+            station_kind="FD",
+            epoch_name=epoch_name,
+        )
+        prediction_window = runner.PredictionDbWindow(
+            resolution_id=1,
+            temporal_resolution_code="hourly",
+            record_quality_short_name=None,
+            date_begin=None,
+            date_end=None,
+            date_range_last_update=None,
+        )
+        connection = _FakeConnection()
+
+        @contextmanager
+        def fake_tsdb_connection():
+            yield connection, object()
+
+        policy = replace(
+            runner.DATABASE_POLICY,
+            write_hf_tide_predictions=True,
+            reconciliation_mode="warn",
+        )
+
+        with (
+            patch.object(runner, "DATABASE_POLICY", policy),
+            patch.object(runner, "_tsdb_connection", fake_tsdb_connection),
+            patch.object(
+                runner,
+                "_query_hf_resolution_target",
+                return_value=None,
+            ),
+            patch.object(runner, "log"),
+        ):
+            result = runner._sync_record_hf_tide_predictions_to_database(
+                record,
+                epoch_sync=epoch_sync,
+                prediction_window=prediction_window,
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+
+        self.assertIsNone(result.resolution_id)
+        self.assertEqual(result.rows_planned, 0)
+        self.assertEqual(result.rows_deleted, 0)
+        self.assertEqual(result.rows_written, 0)
+
+        self.assertEqual(connection.cursor_instance.executions, [])
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 0)
+
+        self.assertTrue(
+            any(
+                "existing HF prediction rows were preserved" in note
+                for note in result.notes
+            )
+        )
+
+
+    def test_missing_hf_resolution_still_raises_in_strict_mode(self):
+        epoch_name = "RECENT_2015_2017"
+        record = self._record(
+            station_kind="FD",
+            epoch_name=epoch_name,
+            start="2016-01-01 00:00:00",
+            end="2016-01-02 00:00:00",
+        )
+        epoch_sync = self._epoch_sync(
+            station_kind="FD",
+            epoch_name=epoch_name,
+        )
+        prediction_window = runner.PredictionDbWindow(
+            resolution_id=1,
+            temporal_resolution_code="hourly",
+            record_quality_short_name=None,
+            date_begin=None,
+            date_end=None,
+            date_range_last_update=None,
+        )
+        connection = _FakeConnection()
+
+        @contextmanager
+        def fake_tsdb_connection():
+            yield connection, object()
+
+        policy = replace(
+            runner.DATABASE_POLICY,
+            write_hf_tide_predictions=True,
+            reconciliation_mode="strict",
+        )
+
+        with (
+            patch.object(runner, "DATABASE_POLICY", policy),
+            patch.object(runner, "_tsdb_connection", fake_tsdb_connection),
+            patch.object(
+                runner,
+                "_query_hf_resolution_target",
+                return_value=None,
+            ),
+            patch.object(runner, "log"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "no target resolution exists",
+            ):
+                runner._sync_record_hf_tide_predictions_to_database(
+                    record,
+                    epoch_sync=epoch_sync,
+                    prediction_window=prediction_window,
+                )
+
+        self.assertEqual(connection.cursor_instance.executions, [])
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 0)
+
     def test_old_rq_product_with_no_hf_overlap_plans_no_inserts(self):
         epoch_name = "RECENT_1970_1972"
         record = self._record(
