@@ -5,7 +5,10 @@
 prepare_runtime_or_die /etc/environment
 
 ### CODE DIRECTORY. ###
-CODE_DIR="/home/nwstg/uhslc-tidal-datums-predictions"
+CODE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+### PRODUCTION ARTIFACT WEB/REVIEW DIRECTORY. ###
+ARTIFACT_REVIEW_ROOT="/srv/htdocs/uhslc.soest.hawaii.edu/tech/datums_predictions_review"
 
 ### CHANGE TO CODE DIRECTORY. ###
 cd "$CODE_DIR" || exit 1
@@ -19,11 +22,40 @@ FAILED=""
 for UHSLC_ID in $UHSLC_IDS
 do
 
-  ### UPDATE EPOCH'S, TIDE PREDICTIONS, DATUMS, AND CONSTITUENTS. ###
-  MPLCONFIGDIR=/tmp/mplconfig python ${CODE_DIR}/scripts/run_station_datums_predictions.py --station-id ${UHSLC_ID}
-  STATUS=$?
+  ### UPDATE EPOCHS, TIDE PREDICTIONS, DATUMS, AND CONSTITUENTS. ###
+  if MPLCONFIGDIR=/tmp/mplconfig \
+      python "$CODE_DIR/scripts/run_station_datums_predictions.py" \
+      --station-id "$UHSLC_ID"
+  then
 
-  if [ "$STATUS" -ne 0 ]; then
+    ### PUBLISH THIS STATION'S ARTIFACTS ON PROD ONLY. ###
+    if [ "$PROCESS_ENV" = "prod" ]; then
+      SOURCE_DIR="$CODE_DIR/artifacts/datums_predictions/station${UHSLC_ID}"
+      DEST_DIR="$ARTIFACT_REVIEW_ROOT/station${UHSLC_ID}"
+
+      if [ ! -d "$SOURCE_DIR" ]; then
+        echo "FAILED station ${UHSLC_ID}: artifact directory not found: ${SOURCE_DIR}" >&2
+        FAILED="${FAILED} ${UHSLC_ID}"
+        continue
+      fi
+
+      mkdir -p "$DEST_DIR" || {
+        echo "FAILED station ${UHSLC_ID}: could not create ${DEST_DIR}" >&2
+        FAILED="${FAILED} ${UHSLC_ID}"
+        continue
+      }
+
+      if ! rsync -a --delete "$SOURCE_DIR/" "$DEST_DIR/"; then
+        echo "FAILED station ${UHSLC_ID}: artifact rsync failed" >&2
+        FAILED="${FAILED} ${UHSLC_ID}"
+        continue
+      fi
+
+      echo "Published station ${UHSLC_ID} artifacts to ${DEST_DIR}"
+    fi
+
+  else
+    STATUS=$?
     echo "FAILED station ${UHSLC_ID} with exit code ${STATUS}" >&2
     FAILED="${FAILED} ${UHSLC_ID}"
   fi

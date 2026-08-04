@@ -5518,7 +5518,7 @@ def _run_record(
 
 def _run_station(station_id: str) -> None:
     project_root = Path(__file__).resolve().parents[1]
-    output_root = project_root / "artifacts" / f"station{station_id}"
+    output_root = project_root / "artifacts" / "datums_predictions" / f"station{station_id}"
     output_root.mkdir(parents=True, exist_ok=True)
     run_last_update = pd.Timestamp.utcnow().tz_localize(None)
     log(f"Starting station {station_id} datums_predictions run")
