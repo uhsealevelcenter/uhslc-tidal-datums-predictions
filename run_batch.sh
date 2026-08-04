@@ -1,17 +1,17 @@
 #!/bin/sh -f 
 
-### ACTIVATE VIRTUAL AND PROCESS ENV'S. ###
-. /home/nwstg/timescale/utils/initialize_process_env.sh
-prepare_runtime_or_die /etc/environment
+### DYNAMICALLY DETERMINE SCRIPT DIRECTORY. ###
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-### CODE DIRECTORY. ###
-CODE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+### ACTIVATE VIRTUAL AND PROCESS ENV'S. ###
+. "$SCRIPT_DIR/../timescale/utils/initialize_process_env.sh"
+prepare_runtime_or_die /etc/environment
 
 ### PRODUCTION ARTIFACT WEB/REVIEW DIRECTORY. ###
 ARTIFACT_REVIEW_ROOT="/srv/htdocs/uhslc.soest.hawaii.edu/tech/datums_predictions_review"
 
 ### CHANGE TO CODE DIRECTORY. ###
-cd "$CODE_DIR" || exit 1
+cd "$SCRIPT_DIR" || exit 1
 echo "running from: $(pwd)"
 
 ### UHSLC ID'S TO PROCESS. ###
@@ -24,13 +24,13 @@ do
 
   ### UPDATE EPOCHS, TIDE PREDICTIONS, DATUMS, AND CONSTITUENTS. ###
   if MPLCONFIGDIR=/tmp/mplconfig \
-      python "$CODE_DIR/scripts/run_station_datums_predictions.py" \
+      python "$SCRIPT_DIR/scripts/run_station_datums_predictions.py" \
       --station-id "$UHSLC_ID"
   then
 
     ### PUBLISH THIS STATION'S ARTIFACTS ON PROD ONLY. ###
     if [ "$PROCESS_ENV" = "prod" ]; then
-      SOURCE_DIR="$CODE_DIR/artifacts/datums_predictions/station${UHSLC_ID}"
+      SOURCE_DIR="$SCRIPT_DIR/artifacts/datums_predictions/station${UHSLC_ID}"
       DEST_DIR="$ARTIFACT_REVIEW_ROOT/station${UHSLC_ID}"
 
       if [ ! -d "$SOURCE_DIR" ]; then
