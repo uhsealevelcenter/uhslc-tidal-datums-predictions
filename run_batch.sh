@@ -3,8 +3,11 @@
 ### DYNAMICALLY DETERMINE SCRIPT DIRECTORY. ###
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+### TIMESCALE DIRECTORY. ###
+TIMESCALE_DIR="$SCRIPT_DIR/../timescale"
+
 ### ACTIVATE VIRTUAL AND PROCESS ENV'S. ###
-. "$SCRIPT_DIR/../timescale/utils/initialize_process_env.sh"
+. "${TIMESCALE_DIR}/utils/initialize_process_env.sh"
 prepare_runtime_or_die /etc/environment
 
 ### PRODUCTION ARTIFACT WEB/REVIEW DIRECTORY. ###
@@ -15,7 +18,28 @@ cd "$SCRIPT_DIR" || exit 1
 echo "running from: $(pwd)"
 
 ### UHSLC ID'S TO PROCESS. ###
-UHSLC_IDS="002 003 007 014 026 027 057 421 422 423 424 425 426 428 429 430 431 432 436 437 438 547 548 553"
+# DEFAULT_UHSLC_IDS="002 003 007 014 026 027 057 421 422 423 424 425 426 428 429 430 431 432 436 437 438 547 548 553"
+DEFAULT_UHSLC_IDS=`python3 ${TIMESCALE_DIR}/utils/get_all_uhslc_ids.py`
+case "$#" in
+  0)
+    UHSLC_IDS="$DEFAULT_UHSLC_IDS"
+    ;;
+  1)
+    case "$1" in
+      [0-9][0-9][0-9])
+        UHSLC_IDS="$1"
+        ;;
+      *)
+        echo "ERROR: UHSLC_ID must be a three-digit value, such as 002 or 421." >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  *)
+    echo "Usage: ${0##*/} [UHSLC_ID]" >&2
+    exit 2
+    ;;
+esac
 
 ### LOOP THROUGH UHSLC IDS. ###
 FAILED=""
